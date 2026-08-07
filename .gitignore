@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.DS_Store
+evaluation_results.json
+evaluation_results.csv
+*.log
+*.db
+*.db-journal
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Taro mini program
+miniprogram/node_modules/
+miniprogram/dist/
+miniprogram/.temp/
+miniprogram/.swc/
+miniprogram/.rn_temp/
+miniprogram/.env
+miniprogram/.env.local
+

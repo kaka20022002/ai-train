@@ -1,0 +1,29 @@
+{
+  "user_profile": {
+    "user_id": "usr_demo_001",
+    "basic_info": {
+      "age": 30,
+      "gender": "male"
+    },
+    "fitness_level": "intermediate",
+    "medical_history": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "notes": "Pain during deep flexion"
+      }
+    ]
+  },
+  "feedback": {
+    "session_id": "sess_demo_001",
+    "user_id": "usr_demo_001",
+    "date": "2026-03-27",
+    "rpe": 8,
+    "completion_rate": 0.9,
+    "pain_feedback": {
+      "has_pain": false
+    }
+  },
+  "workout_type": "full_body"
+}

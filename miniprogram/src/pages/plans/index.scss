@@ -1,0 +1,44 @@
+@import "../../styles/common.scss";
+
+.prog-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #0f172a;
+  flex: 1;
+  min-width: 0;
+}
+
+.progress-wrap {
+  margin-top: 24rpx;
+}
+
+.progress-bar {
+  height: 14rpx;
+  border-radius: 999rpx;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #14b8a6, #0f766e);
+}
+
+.progress-text {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #64748b;
+}
+
+.actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.half {
+  flex: 1;
+}

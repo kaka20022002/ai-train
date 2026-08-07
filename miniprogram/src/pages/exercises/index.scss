@@ -1,0 +1,48 @@
+@import "../../styles/common.scss";
+
+.ex-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid rgba(15, 23, 42, 0.06);
+}
+
+.ex-item:active {
+  opacity: 0.72;
+}
+
+.ex-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ex-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #0b1220;
+}
+
+.detail {
+  position: relative;
+}
+
+.guide-img {
+  width: 100%;
+  height: 300rpx;
+  margin: 16rpx 0;
+  background: linear-gradient(145deg, #0f1419, #1a2332);
+  border-radius: 18rpx;
+}
+
+.tech-line {
+  display: block;
+  font-size: 26rpx;
+  color: #334155;
+  line-height: 1.6;
+  margin-bottom: 8rpx;
+  padding-left: 16rpx;
+  border-left: 4rpx solid #14b8a6;
+}

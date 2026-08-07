@@ -1,0 +1,48 @@
+{
+  "user_id": "usr_20260304_001",
+  "basic_info": {
+    "age": 32,
+    "gender": "male",
+    "height_cm": 178,
+    "weight_kg": 82,
+    "bmi": 25.9
+  },
+  "fitness_level": "intermediate",
+  "fitness_goal": "hypertrophy",
+  "training_frequency": 4,
+  "medical_history": [
+    {
+      "location": "knee",
+      "condition": "meniscus_tear",
+      "severity": "high",
+      "pain_trigger": "deep_flexion",
+      "onset_date": "2025-06-15",
+      "notes": "Right knee, partial medial meniscus tear. Avoid loaded knee flexion beyond 90 degrees."
+    },
+    {
+      "location": "shoulder",
+      "condition": "rotator_cuff_impingement",
+      "severity": "medium",
+      "pain_trigger": "overhead_movement",
+      "onset_date": "2025-11-20",
+      "notes": "Left shoulder impingement. Pain during overhead press and lateral raises above 90 degrees."
+    },
+    {
+      "location": "spine",
+      "condition": "lumbar_disc_bulge",
+      "severity": "low",
+      "pain_trigger": "spinal_flexion_under_load",
+      "onset_date": "2024-03-10",
+      "notes": "L4-L5 mild bulge. Asymptomatic when maintaining neutral spine. Avoid heavy conventional deadlifts."
+    }
+  ],
+  "allergies": [],
+  "medications": [],
+  "emergency_contact": {
+    "name": "Jane Doe",
+    "phone": "+1-555-123-4567",
+    "relationship": "spouse"
+  },
+  "created_at": "2026-03-04T09:30:00Z",
+  "updated_at": "2026-03-04T09:30:00Z"
+}

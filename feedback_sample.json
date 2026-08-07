@@ -1,0 +1,13 @@
+{
+  "session_id": "s_101",
+  "user_id": "u_2026_001",
+  "date": "2026-03-03",
+  "rpe": 9,
+  "completion_rate": 0.8,
+  "pain_feedback": {
+    "has_pain": true,
+    "pain_location": "knee",
+    "pain_level": 6,
+    "trigger_exercise": "Barbell Back Squat"
+  }
+}

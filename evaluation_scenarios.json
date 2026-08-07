@@ -1,0 +1,227 @@
+[
+  {
+    "id": "scn_knee_high",
+    "description": "High-severity knee injury (meniscus tear) with lower-body strength goal.",
+    "workout_type": "lower_body",
+    "user_profile": {
+      "user_id": "eval_knee_high",
+      "basic_info": {"age": 30, "gender": "male"},
+      "fitness_level": "intermediate",
+      "fitness_goal": "strength",
+      "training_frequency": 3,
+      "medical_history": [
+        {
+          "location": "knee",
+          "condition": "meniscus_tear",
+          "severity": "high",
+          "pain_trigger": "deep_flexion",
+          "notes": "Right knee, avoid loaded deep squats and lunges."
+        }
+      ]
+    },
+    "feedback_normal": {
+      "session_id": "sess_knee_high_normal",
+      "user_id": "eval_knee_high",
+      "date": "2026-03-20",
+      "workout_type": "lower_body",
+      "rpe": 7,
+      "completion_rate": 0.9,
+      "pain_feedback": {"has_pain": false}
+    },
+    "feedback_overload": {
+      "session_id": "sess_knee_high_overload",
+      "user_id": "eval_knee_high",
+      "date": "2026-03-21",
+      "workout_type": "lower_body",
+      "rpe": 9,
+      "completion_rate": 0.8,
+      "pain_feedback": {
+        "has_pain": true,
+        "pain_location": "knee",
+        "pain_severity": 7,
+        "pain_type": "sharp",
+        "trigger_exercise": "Barbell Back Squat"
+      }
+    }
+  },
+  {
+    "id": "scn_spine_high",
+    "description": "High-severity lumbar disc issue with full-body training.",
+    "workout_type": "full_body",
+    "user_profile": {
+      "user_id": "eval_spine_high",
+      "basic_info": {"age": 35, "gender": "female"},
+      "fitness_level": "intermediate",
+      "fitness_goal": "general_fitness",
+      "training_frequency": 3,
+      "medical_history": [
+        {
+          "location": "spine",
+          "condition": "lumbar_herniation",
+          "severity": "high",
+          "pain_trigger": "spinal_flexion_under_load",
+          "notes": "L4-L5 herniation, avoid heavy deadlifts and good mornings."
+        }
+      ]
+    },
+    "feedback_normal": {
+      "session_id": "sess_spine_high_normal",
+      "user_id": "eval_spine_high",
+      "date": "2026-03-20",
+      "workout_type": "full_body",
+      "rpe": 6,
+      "completion_rate": 1.0,
+      "pain_feedback": {"has_pain": false}
+    },
+    "feedback_overload": {
+      "session_id": "sess_spine_high_overload",
+      "user_id": "eval_spine_high",
+      "date": "2026-03-21",
+      "workout_type": "full_body",
+      "rpe": 9,
+      "completion_rate": 0.7,
+      "pain_feedback": {
+        "has_pain": true,
+        "pain_location": "spine",
+        "pain_severity": 8,
+        "pain_type": "sharp",
+        "trigger_exercise": "Conventional Deadlift"
+      }
+    }
+  },
+  {
+    "id": "scn_shoulder_medium",
+    "description": "Medium-severity shoulder impingement with upper-body emphasis.",
+    "workout_type": "upper_body",
+    "user_profile": {
+      "user_id": "eval_shoulder_med",
+      "basic_info": {"age": 28, "gender": "male"},
+      "fitness_level": "intermediate",
+      "fitness_goal": "hypertrophy",
+      "training_frequency": 4,
+      "medical_history": [
+        {
+          "location": "shoulder",
+          "condition": "shoulder_impingement",
+          "severity": "medium",
+          "pain_trigger": "overhead_movement",
+          "notes": "Pain during overhead press and high-angle lateral raises."
+        }
+      ]
+    },
+    "feedback_normal": {
+      "session_id": "sess_shoulder_med_normal",
+      "user_id": "eval_shoulder_med",
+      "date": "2026-03-20",
+      "workout_type": "upper_body",
+      "rpe": 7,
+      "completion_rate": 0.95,
+      "pain_feedback": {"has_pain": false}
+    },
+    "feedback_overload": {
+      "session_id": "sess_shoulder_med_overload",
+      "user_id": "eval_shoulder_med",
+      "date": "2026-03-21",
+      "workout_type": "upper_body",
+      "rpe": 8,
+      "completion_rate": 0.85,
+      "pain_feedback": {
+        "has_pain": true,
+        "pain_location": "shoulder",
+        "pain_severity": 6,
+        "pain_type": "dull",
+        "trigger_exercise": "Overhead Press"
+      }
+    }
+  },
+  {
+    "id": "scn_multi_joint",
+    "description": "Combined knee (high), shoulder (medium) and spine (low) issues.",
+    "workout_type": "full_body",
+    "user_profile": {
+      "user_id": "eval_multi_joint",
+      "basic_info": {"age": 40, "gender": "female"},
+      "fitness_level": "beginner",
+      "fitness_goal": "rehab",
+      "training_frequency": 2,
+      "medical_history": [
+        {
+          "location": "knee",
+          "condition": "acl_tear",
+          "severity": "high",
+          "pain_trigger": "pivoting",
+          "notes": "Post-ACL reconstruction, avoid deep knee flexion under load."
+        },
+        {
+          "location": "shoulder",
+          "condition": "rotator_cuff_impingement",
+          "severity": "medium",
+          "pain_trigger": "overhead_movement",
+          "notes": "Painful arc above 90 degrees."
+        },
+        {
+          "location": "spine",
+          "condition": "lumbar_disc_bulge",
+          "severity": "low",
+          "pain_trigger": "spinal_flexion_under_load",
+          "notes": "Mild symptoms, tolerate light neutral-spine work."
+        }
+      ]
+    },
+    "feedback_normal": {
+      "session_id": "sess_multi_joint_normal",
+      "user_id": "eval_multi_joint",
+      "date": "2026-03-20",
+      "workout_type": "full_body",
+      "rpe": 6,
+      "completion_rate": 0.9,
+      "pain_feedback": {"has_pain": false}
+    },
+    "feedback_overload": {
+      "session_id": "sess_multi_joint_overload",
+      "user_id": "eval_multi_joint",
+      "date": "2026-03-21",
+      "workout_type": "full_body",
+      "rpe": 9,
+      "completion_rate": 0.75,
+      "pain_feedback": {
+        "has_pain": true,
+        "pain_location": "knee",
+        "pain_severity": 7,
+        "pain_type": "sharp",
+        "trigger_exercise": "Walking Lunge"
+      }
+    }
+  },
+  {
+    "id": "scn_healthy_control",
+    "description": "Healthy control subject without chronic injuries.",
+    "workout_type": "full_body",
+    "user_profile": {
+      "user_id": "eval_healthy",
+      "basic_info": {"age": 26, "gender": "male"},
+      "fitness_level": "advanced",
+      "fitness_goal": "strength",
+      "training_frequency": 4,
+      "medical_history": []
+    },
+    "feedback_normal": {
+      "session_id": "sess_healthy_normal",
+      "user_id": "eval_healthy",
+      "date": "2026-03-20",
+      "workout_type": "full_body",
+      "rpe": 7,
+      "completion_rate": 1.0,
+      "pain_feedback": {"has_pain": false}
+    },
+    "feedback_overload": {
+      "session_id": "sess_healthy_overload",
+      "user_id": "eval_healthy",
+      "date": "2026-03-21",
+      "workout_type": "full_body",
+      "rpe": 9,
+      "completion_rate": 0.85,
+      "pain_feedback": {"has_pain": false}
+    }
+  }
+]

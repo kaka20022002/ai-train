@@ -1,0 +1,978 @@
+[
+  {
+    "id": 1,
+    "name": "Barbell Back Squat",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle",
+      "spine"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "meniscus_tear",
+      "acl_tear",
+      "lumbar_herniation",
+      "patellar_tendonitis",
+      "hip_labral_tear"
+    ],
+    "substitution": "Goblet Squat or Leg Press",
+    "required_equipment": [
+      "barbell",
+      "squat_rack"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Goblet Squat",
+      "bodyweight": "Bulgarian Split Squat",
+      "machine": "Leg Press"
+    }
+  },
+  {
+    "id": 2,
+    "name": "Conventional Deadlift",
+    "type": "Compound",
+    "target_muscle": "Erector Spinae",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "spine"
+    ],
+    "risk_level": 5,
+    "contraindications": [
+      "lumbar_herniation",
+      "lumbar_radiculopathy",
+      "hamstring_tear",
+      "sacroiliac_joint_dysfunction"
+    ],
+    "substitution": "Trap Bar Deadlift or Romanian Deadlift (Light Load)",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Romanian Deadlift",
+      "bodyweight": "Single-Leg Hip Hinge",
+      "kettlebell": "Kettlebell Swing"
+    }
+  },
+  {
+    "id": 3,
+    "name": "Barbell Bench Press",
+    "type": "Compound",
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "rotator_cuff_tear",
+      "shoulder_impingement",
+      "pec_tear",
+      "ac_joint_sprain"
+    ],
+    "substitution": "Dumbbell Floor Press or Push-Up",
+    "required_equipment": [
+      "barbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Incline Dumbbell Press",
+      "bodyweight": "Push-Up",
+      "machine": "Machine Chest Press"
+    }
+  },
+  {
+    "id": 4,
+    "name": "Overhead Press",
+    "type": "Compound",
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder",
+      "elbow",
+      "spine"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "shoulder_impingement",
+      "rotator_cuff_tear",
+      "cervical_disc_herniation",
+      "thoracic_outlet_syndrome"
+    ],
+    "substitution": "Landmine Press or Lateral Raise",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Arnold Press",
+      "bodyweight": "Pike Push-Up"
+    }
+  },
+  {
+    "id": 5,
+    "name": "Pull-Up",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "shoulder_impingement",
+      "bicep_tendonitis",
+      "rotator_cuff_tear",
+      "elbow_tendonitis"
+    ],
+    "substitution": "Lat Pulldown or Assisted Pull-Up Machine",
+    "required_equipment": [
+      "pull_up_bar"
+    ],
+    "alternatives_by_equipment": {
+      "machine": "Lat Pulldown",
+      "resistance_band": "Band-Assisted Pull-Up",
+      "dumbbell": "Dumbbell Row"
+    }
+  },
+  {
+    "id": 6,
+    "name": "Barbell Row",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "elbow",
+      "spine"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "bicep_tendonitis",
+      "lumbar_strain"
+    ],
+    "substitution": "Chest-Supported Row or Seated Cable Row",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Row",
+      "cable": "Seated Cable Row",
+      "machine": "Chest-Supported Row"
+    }
+  },
+  {
+    "id": 7,
+    "name": "Walking Lunge",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "meniscus_tear",
+      "acl_tear",
+      "patellar_tendonitis",
+      "ankle_instability"
+    ],
+    "substitution": "Static Split Squat or Step-Up",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Walking Lunge",
+      "bodyweight": "Reverse Lunge"
+    }
+  },
+  {
+    "id": 8,
+    "name": "Leg Extension",
+    "type": "Isolation",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "knee"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "acl_tear",
+      "patellar_tendonitis",
+      "meniscus_tear",
+      "chondromalacia_patella"
+    ],
+    "substitution": "Terminal Knee Extension or Straight Leg Raise",
+    "required_equipment": [
+      "machine"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Wall Sit",
+      "resistance_band": "Band Leg Extension"
+    }
+  },
+  {
+    "id": 9,
+    "name": "Leg Curl",
+    "type": "Isolation",
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "knee"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "hamstring_tear",
+      "pcl_tear",
+      "knee_effusion"
+    ],
+    "substitution": "Nordic Curl (Assisted) or Stability Ball Leg Curl",
+    "required_equipment": [
+      "machine"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Nordic Curl",
+      "resistance_band": "Band Leg Curl"
+    }
+  },
+  {
+    "id": 10,
+    "name": "Leg Press",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation",
+      "hip_labral_tear",
+      "severe_knee_arthritis"
+    ],
+    "substitution": "Bodyweight Squat or Wall Sit",
+    "required_equipment": [
+      "machine"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Barbell Back Squat",
+      "dumbbell": "Goblet Squat",
+      "bodyweight": "Bodyweight Squat"
+    }
+  },
+  {
+    "id": 11,
+    "name": "Romanian Deadlift",
+    "type": "Compound",
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "hamstring_tear",
+      "sacroiliac_joint_dysfunction"
+    ],
+    "substitution": "Single-Leg Romanian Deadlift (Bodyweight) or Good Morning (Light)",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Romanian Deadlift",
+      "bodyweight": "Single-Leg Romanian Deadlift"
+    }
+  },
+  {
+    "id": 12,
+    "name": "Hip Thrust",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation",
+      "hip_labral_tear",
+      "pubic_symphysis_dysfunction"
+    ],
+    "substitution": "Glute Bridge or Cable Pull-Through",
+    "required_equipment": [
+      "barbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Hip Thrust",
+      "bodyweight": "Glute Bridge"
+    }
+  },
+  {
+    "id": 13,
+    "name": "Calf Raise",
+    "type": "Isolation",
+    "target_muscle": "Gastrocnemius",
+    "involved_joints": [
+      "ankle"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "achilles_tendonitis",
+      "plantar_fasciitis",
+      "calf_strain"
+    ],
+    "substitution": "Seated Calf Raise or Eccentric Calf Drop",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Calf Raise",
+      "machine": "Seated Calf Raise"
+    }
+  },
+  {
+    "id": 14,
+    "name": "Incline Dumbbell Press",
+    "type": "Compound",
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "shoulder_impingement",
+      "rotator_cuff_tear",
+      "ac_joint_sprain"
+    ],
+    "substitution": "Incline Push-Up or Low Incline Dumbbell Press",
+    "required_equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Barbell Bench Press",
+      "bodyweight": "Incline Push-Up",
+      "machine": "Machine Chest Press"
+    }
+  },
+  {
+    "id": 15,
+    "name": "Dumbbell Fly",
+    "type": "Isolation",
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "pec_tear",
+      "shoulder_instability",
+      "bicep_tendonitis"
+    ],
+    "substitution": "Cable Crossover or Pec Deck Machine",
+    "required_equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "cable": "Cable Crossover",
+      "machine": "Pec Deck",
+      "resistance_band": "Band Fly"
+    }
+  },
+  {
+    "id": 16,
+    "name": "Cable Crossover",
+    "type": "Isolation",
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_instability",
+      "pec_tear"
+    ],
+    "substitution": "Pec Deck Machine or Resistance Band Fly",
+    "required_equipment": [
+      "cable"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Fly",
+      "machine": "Pec Deck",
+      "resistance_band": "Band Fly"
+    }
+  },
+  {
+    "id": 17,
+    "name": "Lat Pulldown",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement",
+      "bicep_tendonitis",
+      "rotator_cuff_tear"
+    ],
+    "substitution": "Straight Arm Pulldown or Resistance Band Pulldown",
+    "required_equipment": [
+      "machine"
+    ],
+    "alternatives_by_equipment": {
+      "pull_up_bar": "Pull-Up",
+      "resistance_band": "Band Pulldown",
+      "dumbbell": "Dumbbell Row"
+    }
+  },
+  {
+    "id": 18,
+    "name": "Seated Cable Row",
+    "type": "Compound",
+    "target_muscle": "Rhomboids",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "bicep_tendonitis",
+      "shoulder_impingement"
+    ],
+    "substitution": "Resistance Band Row or Chest-Supported Row",
+    "required_equipment": [
+      "cable"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Row",
+      "barbell": "Barbell Row",
+      "resistance_band": "Band Row"
+    }
+  },
+  {
+    "id": 19,
+    "name": "T-Bar Row",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "elbow",
+      "spine"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "lumbar_strain",
+      "bicep_tendonitis"
+    ],
+    "substitution": "Chest-Supported Row or Machine Row",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Row",
+      "cable": "Seated Cable Row"
+    }
+  },
+  {
+    "id": 20,
+    "name": "Face Pull",
+    "type": "Isolation",
+    "target_muscle": "Rear Deltoids",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "rotator_cuff_tear",
+      "shoulder_impingement"
+    ],
+    "substitution": "Prone Y Raise or Resistance Band Pull-Apart",
+    "required_equipment": [
+      "cable"
+    ],
+    "alternatives_by_equipment": {
+      "resistance_band": "Band Pull-Apart",
+      "dumbbell": "Rear Delt Raise"
+    }
+  },
+  {
+    "id": 21,
+    "name": "Lateral Raise",
+    "type": "Isolation",
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement",
+      "rotator_cuff_tear",
+      "subacromial_bursitis"
+    ],
+    "substitution": "Cable Lateral Raise or Scaption Raise",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "cable": "Cable Lateral Raise",
+      "resistance_band": "Band Lateral Raise"
+    }
+  },
+  {
+    "id": 22,
+    "name": "Arnold Press",
+    "type": "Compound",
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "shoulder_impingement",
+      "rotator_cuff_tear",
+      "labral_tear"
+    ],
+    "substitution": "Seated Dumbbell Press or Landmine Press",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Overhead Press",
+      "bodyweight": "Pike Push-Up"
+    }
+  },
+  {
+    "id": 23,
+    "name": "Barbell Curl",
+    "type": "Isolation",
+    "target_muscle": "Biceps Brachii",
+    "involved_joints": [
+      "elbow",
+      "wrist"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "bicep_tendonitis",
+      "elbow_tendonitis",
+      "wrist_tendonitis"
+    ],
+    "substitution": "Dumbbell Hammer Curl or Cable Curl",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Curl",
+      "cable": "Cable Curl",
+      "resistance_band": "Band Curl"
+    }
+  },
+  {
+    "id": 24,
+    "name": "Dumbbell Hammer Curl",
+    "type": "Isolation",
+    "target_muscle": "Brachialis",
+    "involved_joints": [
+      "elbow"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "elbow_tendonitis",
+      "bicep_tendonitis"
+    ],
+    "substitution": "Resistance Band Curl or Isometric Curl Hold",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "cable": "Cable Hammer Curl",
+      "resistance_band": "Band Hammer Curl"
+    }
+  },
+  {
+    "id": 25,
+    "name": "Preacher Curl",
+    "type": "Isolation",
+    "target_muscle": "Biceps Brachii",
+    "involved_joints": [
+      "elbow"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "bicep_tear",
+      "elbow_tendonitis",
+      "bicep_tendonitis"
+    ],
+    "substitution": "Incline Dumbbell Curl or Cable Curl",
+    "required_equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Incline Dumbbell Curl",
+      "cable": "Cable Curl"
+    }
+  },
+  {
+    "id": 26,
+    "name": "Tricep Dip",
+    "type": "Compound",
+    "target_muscle": "Triceps Brachii",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "shoulder_impingement",
+      "rotator_cuff_tear",
+      "elbow_tendonitis",
+      "sternoclavicular_joint_sprain"
+    ],
+    "substitution": "Bench Dip (Feet Elevated) or Tricep Pushdown",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "cable": "Tricep Pushdown",
+      "dumbbell": "Overhead Tricep Extension"
+    }
+  },
+  {
+    "id": 27,
+    "name": "Tricep Pushdown",
+    "type": "Isolation",
+    "target_muscle": "Triceps Brachii",
+    "involved_joints": [
+      "elbow"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "elbow_tendonitis",
+      "tricep_tendonitis"
+    ],
+    "substitution": "Overhead Tricep Extension (Light) or Resistance Band Pushdown",
+    "required_equipment": [
+      "cable"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Overhead Tricep Extension",
+      "bodyweight": "Close-Grip Push-Up",
+      "resistance_band": "Band Pushdown"
+    }
+  },
+  {
+    "id": 28,
+    "name": "Skull Crusher",
+    "type": "Isolation",
+    "target_muscle": "Triceps Brachii",
+    "involved_joints": [
+      "elbow",
+      "shoulder"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "elbow_tendonitis",
+      "tricep_tendonitis",
+      "shoulder_instability"
+    ],
+    "substitution": "Tricep Pushdown or Close-Grip Push-Up",
+    "required_equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "alternatives_by_equipment": {
+      "cable": "Tricep Pushdown",
+      "bodyweight": "Close-Grip Push-Up"
+    }
+  },
+  {
+    "id": 29,
+    "name": "Wrist Curl",
+    "type": "Isolation",
+    "target_muscle": "Forearm Flexors",
+    "involved_joints": [
+      "wrist"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "carpal_tunnel_syndrome",
+      "wrist_tendonitis",
+      "de_quervain_tenosynovitis"
+    ],
+    "substitution": "Reverse Wrist Curl or Grip Squeeze",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "resistance_band": "Band Wrist Curl",
+      "bodyweight": "Grip Squeeze"
+    }
+  },
+  {
+    "id": 30,
+    "name": "Plank",
+    "type": "Isometric",
+    "target_muscle": "Rectus Abdominis",
+    "involved_joints": [
+      "spine",
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "lumbar_herniation",
+      "diastasis_recti",
+      "shoulder_impingement"
+    ],
+    "substitution": "Dead Bug or Bird Dog",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 31,
+    "name": "Crunch",
+    "type": "Isolation",
+    "target_muscle": "Rectus Abdominis",
+    "involved_joints": [
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation",
+      "cervical_disc_herniation",
+      "diastasis_recti"
+    ],
+    "substitution": "Dead Bug or Reverse Crunch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 32,
+    "name": "Hanging Leg Raise",
+    "type": "Compound",
+    "target_muscle": "Rectus Abdominis",
+    "involved_joints": [
+      "spine",
+      "hip",
+      "shoulder"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "shoulder_impingement",
+      "hip_flexor_strain"
+    ],
+    "substitution": "Lying Leg Raise or Captain's Chair Knee Raise",
+    "required_equipment": [
+      "pull_up_bar"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Lying Leg Raise",
+      "machine": "Captain's Chair Knee Raise"
+    }
+  },
+  {
+    "id": 33,
+    "name": "Russian Twist",
+    "type": "Isolation",
+    "target_muscle": "Obliques",
+    "involved_joints": [
+      "spine"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "lumbar_radiculopathy",
+      "sacroiliac_joint_dysfunction"
+    ],
+    "substitution": "Pallof Press or Side Plank",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 34,
+    "name": "Back Extension",
+    "type": "Isolation",
+    "target_muscle": "Erector Spinae",
+    "involved_joints": [
+      "spine",
+      "hip"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "lumbar_herniation",
+      "spondylolisthesis",
+      "spinal_stenosis"
+    ],
+    "substitution": "Bird Dog or Prone Back Extension (No Load)",
+    "required_equipment": [
+      "machine"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Bird Dog",
+      "machine": "Hyperextension Bench"
+    }
+  },
+  {
+    "id": 35,
+    "name": "Good Morning",
+    "type": "Compound",
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "lumbar_herniation",
+      "hamstring_tear",
+      "sacroiliac_joint_dysfunction"
+    ],
+    "substitution": "Romanian Deadlift (Light) or Stability Ball Hamstring Curl",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Romanian Deadlift",
+      "bodyweight": "Bird Dog"
+    }
+  },
+  {
+    "id": 36,
+    "name": "Front Squat",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle",
+      "spine",
+      "wrist"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "meniscus_tear",
+      "wrist_tendonitis",
+      "thoracic_kyphosis",
+      "acl_tear"
+    ],
+    "substitution": "Goblet Squat or Safety Bar Squat",
+    "required_equipment": [
+      "barbell",
+      "squat_rack"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Goblet Squat",
+      "bodyweight": "Bodyweight Squat"
+    }
+  },
+  {
+    "id": 37,
+    "name": "Bulgarian Split Squat",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 3,
+    "contraindications": [
+      "patellar_tendonitis",
+      "hip_flexor_strain",
+      "ankle_instability"
+    ],
+    "substitution": "Static Split Squat or Reverse Lunge",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Bulgarian Split Squat"
+    }
+  },
+  {
+    "id": 38,
+    "name": "Sumo Deadlift",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "spine"
+    ],
+    "risk_level": 4,
+    "contraindications": [
+      "hip_labral_tear",
+      "groin_strain",
+      "lumbar_herniation"
+    ],
+    "substitution": "Conventional Deadlift (Light) or Trap Bar Deadlift",
+    "required_equipment": [
+      "barbell"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Sumo Deadlift",
+      "kettlebell": "Kettlebell Sumo Deadlift"
+    }
+  },
+  {
+    "id": 39,
+    "name": "Push-Up",
+    "type": "Compound",
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder",
+      "elbow",
+      "wrist"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "wrist_tendonitis",
+      "carpal_tunnel_syndrome",
+      "rotator_cuff_tear"
+    ],
+    "substitution": "Incline Push-Up or Wall Push-Up",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Floor Press",
+      "barbell": "Barbell Bench Press"
+    }
+  },
+  {
+    "id": 40,
+    "name": "Dumbbell Shrug",
+    "type": "Isolation",
+    "target_muscle": "Trapezius",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [
+      "cervical_disc_herniation",
+      "thoracic_outlet_syndrome"
+    ],
+    "substitution": "Cable Shrug or Prone Y Raise",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Barbell Shrug",
+      "cable": "Cable Shrug"
+    }
+  }
+]

@@ -1,0 +1,22 @@
+@import "../../styles/common.scss";
+
+.phase-block {
+  margin-bottom: 20rpx;
+}
+
+.phase-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #0f766e;
+  margin-bottom: 8rpx;
+  letter-spacing: 1rpx;
+}
+
+.phase-line {
+  display: block;
+  font-size: 24rpx;
+  color: #334155;
+  padding: 8rpx 0;
+  border-bottom: 1rpx solid #f8fafc;
+}

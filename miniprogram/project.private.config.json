@@ -1,0 +1,9 @@
+{
+  "description": "本地开发私有配置",
+  "projectname": "ai-train",
+  "setting": {
+    "urlCheck": false,
+    "minifyWXML": false,
+    "minifyWXSS": false
+  }
+}

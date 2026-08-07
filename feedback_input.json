@@ -1,0 +1,52 @@
+{
+  "session_id": "sess_20260304_001",
+  "user_id": "usr_20260304_001",
+  "date": "2026-03-04",
+  "workout_type": "lower_body",
+  "duration_minutes": 55,
+  "rpe": 8,
+  "completion_rate": 0.85,
+  "exercises_completed": [
+    {
+      "exercise_name": "Leg Press",
+      "sets": 4,
+      "reps": [12, 10, 10, 8],
+      "weight_kg": 120
+    },
+    {
+      "exercise_name": "Romanian Deadlift",
+      "sets": 3,
+      "reps": [10, 10, 10],
+      "weight_kg": 60
+    },
+    {
+      "exercise_name": "Leg Curl",
+      "sets": 3,
+      "reps": [12, 12, 10],
+      "weight_kg": 35
+    },
+    {
+      "exercise_name": "Calf Raise",
+      "sets": 4,
+      "reps": [15, 15, 12, 12],
+      "weight_kg": 80
+    }
+  ],
+  "pain_feedback": {
+    "has_pain": true,
+    "pain_location": "knee",
+    "pain_severity": 5,
+    "pain_type": "sharp",
+    "trigger_exercise": "Leg Press",
+    "trigger_moment": "during_exercise",
+    "notes": "Felt sharp pain in right knee during the last 2 sets when going too deep."
+  },
+  "fatigue_feedback": {
+    "overall_fatigue": 7,
+    "muscle_soreness": ["quadriceps", "hamstrings"],
+    "sleep_quality_last_night": 6,
+    "stress_level": 4
+  },
+  "notes": "Had to reduce depth on leg press due to knee discomfort. Will need modification for next session.",
+  "submitted_at": "2026-03-04T18:45:00Z"
+}

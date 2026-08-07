@@ -1,0 +1,24 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "ai-train",
+  "description": "AI 健身教练",
+  "appid": "touristappid",
+  "setting": {
+    "urlCheck": false,
+    "es6": false,
+    "enhance": false,
+    "compileHotReLoad": false,
+    "postcss": false,
+    "minified": false,
+    "minifyWXML": false,
+    "minifyWXSS": false,
+    "minifyJS": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileType": "miniprogram",
+  "condition": {}
+}

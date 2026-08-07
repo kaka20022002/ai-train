@@ -1,0 +1,67 @@
+@import "../../styles/common.scss";
+
+.hero-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-logins {
+  margin-top: 24rpx;
+}
+
+.field-label {
+  display: block;
+  margin-top: 24rpx;
+  margin-bottom: 10rpx;
+  font-size: 24rpx;
+  color: #64748b;
+}
+
+.input {
+  background: #f8fafc;
+  border-radius: 18rpx;
+  padding: 20rpx 22rpx;
+  margin-bottom: 20rpx;
+  font-size: 28rpx;
+  border: 1rpx solid #e2e8f0;
+}
+
+.info-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.info-item {
+  width: calc(50% - 8rpx);
+  background: #f8fafc;
+  border-radius: 18rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+}
+
+.info-label {
+  display: block;
+  font-size: 22rpx;
+  color: #94a3b8;
+  margin-bottom: 8rpx;
+}
+
+.info-value {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.injury-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.injury-text {
+  font-size: 26rpx;
+  color: #334155;
+}
