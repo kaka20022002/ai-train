@@ -1,0 +1,12 @@
+@import "../../styles/common.scss";
+
+.injury-edit {
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid rgba(15, 23, 42, 0.06);
+}
+
+.btn-primary.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}

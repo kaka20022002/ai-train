@@ -5,6 +5,7 @@ export default defineAppConfig({
     "pages/exercises/index",
     "pages/coach/index",
     "pages/profile/index",
+    "pages/profile-edit/index",
     "pages/session/index",
     "pages/dashboard/index",
     "pages/generate/index",

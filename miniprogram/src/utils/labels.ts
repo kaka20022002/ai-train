@@ -77,6 +77,27 @@ export const GENDER_CN: Record<string, string> = {
   unknown: "未设置",
 };
 
+/** 常见伤病描述（展示中文，提交时用 value） */
+export const INJURY_CONDITION_PRESETS: Array<{ value: string; label: string }> = [
+  { value: "meniscus_tear", label: "半月板损伤" },
+  { value: "acl_sprain", label: "交叉韧带拉伤" },
+  { value: "patellofemoral_pain", label: "髌股关节疼痛" },
+  { value: "impingement", label: "肩峰撞击" },
+  { value: "rotator_cuff_strain", label: "肩袖拉伤" },
+  { value: "lower_back_strain", label: "腰部拉伤" },
+  { value: "disc_herniation", label: "椎间盘突出" },
+  { value: "hip_impingement", label: "髋关节撞击" },
+  { value: "ankle_sprain", label: "踝关节扭伤" },
+  { value: "tennis_elbow", label: "网球肘" },
+  { value: "wrist_tendinitis", label: "腕腱炎" },
+  { value: "neck_strain", label: "颈椎劳损" },
+  { value: "other", label: "其他（下方自定义）" },
+];
+
+export const INJURY_CONDITION_CN: Record<string, string> = Object.fromEntries(
+  INJURY_CONDITION_PRESETS.map((x) => [x.value, x.label])
+);
+
 export function chipClass(active: boolean) {
   return active ? "chip on" : "chip";
 }
