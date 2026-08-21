@@ -4,6 +4,26 @@
   "setting": {
     "urlCheck": false,
     "minifyWXML": false,
-    "minifyWXSS": false
-  }
+    "minifyWXSS": false,
+    "minifyJS": false,
+    "minified": false,
+    "es6": false,
+    "enhance": false,
+    "coverView": false,
+    "lazyloadPlaceholderEnable": false,
+    "skylineRenderEnable": false,
+    "preloadBackgroundData": false,
+    "autoAudits": false,
+    "useApiHook": false,
+    "showShadowRootInWxmlPanel": false,
+    "useStaticServer": false,
+    "useLanDebug": false,
+    "showES6CompileOption": false,
+    "compileHotReLoad": false,
+    "checkInvalidKey": true,
+    "ignoreDevUnusedFiles": true,
+    "bigPackageSizeSupport": false
+  },
+  "libVersion": "3.8.12",
+  "condition": {}
 }

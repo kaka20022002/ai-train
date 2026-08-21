@@ -18,15 +18,8 @@ export default defineAppConfig({
     navigationBarTextStyle: "white",
     backgroundColor: "#f2f4f6",
   },
-  permission: {
-    "scope.record": {
-      desc: "用于向 AI 教练语音提问",
-    },
-  },
+  // 录音权限在使用时通过 authorize 申请；permission.scope.record 在新基础库/游客模式下会报「无效」
   requiredPrivateInfos: [],
-  // 同声传译插件需正式 AppID 并在公众平台授权；测试号会报「插件未授权」导致整包失败，故默认不声明。
-  // 正式环境可在此恢复：
-  // plugins: { WechatSI: { version: "0.3.5", provider: "wx069ba97219f66d99" } },
   tabBar: {
     color: "#94a3b8",
     selectedColor: "#0f766e",
