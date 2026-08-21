@@ -2,7 +2,7 @@
   "miniprogramRoot": "dist/",
   "projectname": "ai-train",
   "description": "AI 健身教练",
-  "appid": "touristappid",
+  "appid": "wxf2905045aa6e842b",
   "setting": {
     "urlCheck": false,
     "es6": false,
@@ -37,5 +37,6 @@
     "ignore": [],
     "include": []
   },
-  "editorSetting": {}
+  "editorSetting": {},
+  "libVersion": "3.8.12"
 }

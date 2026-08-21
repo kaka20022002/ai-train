@@ -1,6 +1,6 @@
 {
   "description": "本地开发私有配置",
-  "projectname": "ai-train",
+  "projectname": "miniprogram",
   "setting": {
     "urlCheck": false,
     "minifyWXML": false,
@@ -25,5 +25,6 @@
     "bigPackageSizeSupport": false
   },
   "libVersion": "3.8.12",
-  "condition": {}
+  "condition": {},
+  "appid": "wxf2905045aa6e842b"
 }
