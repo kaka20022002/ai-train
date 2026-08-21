@@ -47,3 +47,13 @@ npm run dev:weapp
 ```
 
 微信开发者工具打开 `miniprogram/`，勾选「不校验合法域名」，点编译。
+
+默认 `project.config.json` 使用游客 `touristappid`。申请正式 AppID 并写入配置见仓库文档：
+
+[`docs/微信AppID申请与接入.md`](../docs/微信AppID申请与接入.md)
+
+```bash
+# 拿到 AppID 后
+../scripts/set-wechat-appid.sh wx你的AppID
+npm run build:weapp
+```
