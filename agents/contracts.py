@@ -141,6 +141,7 @@ class PlanDraft:
     grammar_version: str
     prompt_version: str = ""
     profile_hash: str = ""
+    rejected_ids: Tuple[int, ...] = ()   # 生成阶段被文法挡回的 ID（LLM 幻觉审计）
 
     def iter_slots(self) -> Iterable[Tuple[str, Slot]]:
         for phase in PHASES:
@@ -163,6 +164,7 @@ class PlanDraft:
             "grammar_version": self.grammar_version,
             "prompt_version": self.prompt_version,
             "profile_hash": self.profile_hash,
+            "rejected_ids": list(self.rejected_ids),
         }
 
     @classmethod
@@ -179,6 +181,7 @@ class PlanDraft:
             grammar_version=data.get("grammar_version", ""),
             prompt_version=data.get("prompt_version", ""),
             profile_hash=data.get("profile_hash", ""),
+            rejected_ids=tuple(int(i) for i in data.get("rejected_ids", []) or []),
         )
 
 

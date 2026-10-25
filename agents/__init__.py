@@ -25,7 +25,7 @@ from agents.contracts import (
     Slot,
     Violation,
 )
-from agents.grammar import RiskGrammar, compile_risk_grammar
+from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
 from agents.pipeline import GenerationResult, PipelineAudit, run_pipeline
 from agents.plan_agent import PlanAgent
 from agents.safety_agent import SafetyEvalAgent
@@ -38,6 +38,7 @@ __all__ = [
     "Slot",
     "Violation",
     "RiskGrammar",
+    "build_exercise_index",
     "compile_risk_grammar",
     "GenerationResult",
     "PipelineAudit",

@@ -140,15 +140,22 @@ class PlanAgent:
             return None
 
         phases: Dict[str, List[Slot]] = {}
+        rejected: List[int] = []
         for phase in PHASES:
             slots: List[Slot] = []
             for item in raw.get(phase, []) or []:
                 if not isinstance(item, dict) or "exercise_id" not in item:
                     continue
                 try:
-                    slots.append(Slot.from_dict(item))
+                    slot = Slot.from_dict(item)
                 except (TypeError, ValueError):
                     continue
+                # 第一层同样覆盖 LLM 输出：enum 被绕过（如返回提示词里的旧 ID）
+                # 时在解析处直接挡回，绝不让禁忌 ID 进入 draft。
+                if not grammar.is_allowed(slot.exercise_id):
+                    rejected.append(slot.exercise_id)
+                    continue
+                slots.append(slot)
             phases[phase] = slots
 
         return PlanDraft(
@@ -159,6 +166,7 @@ class PlanAgent:
             generator="llm",
             grammar_version=grammar.version,
             profile_hash=profile.profile_hash,
+            rejected_ids=tuple(rejected),
         )
 
 

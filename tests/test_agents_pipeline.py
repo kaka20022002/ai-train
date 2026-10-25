@@ -177,3 +177,68 @@ def test_healthy_user_gets_richer_plan_than_injured(exercise_db) -> None:
     injured = run_pipeline(exercise_db, KNEE_HIGH, seed=5)
     assert len(healthy.profile.allowed_ids) > len(injured.profile.allowed_ids)
     assert injured.report.passed and healthy.report.passed
+
+
+# ── LLM 后端（用假模型验证，不需要真 key）────────────────────────────────────
+def _knee_profile_and_grammar(exercise_db):
+    index = build_exercise_index(exercise_db)
+    profile = run_pipeline(exercise_db, KNEE_HIGH).profile
+    return profile, compile_risk_grammar(profile, index)
+
+
+def test_llm_backend_receives_enum_masked_schema(exercise_db) -> None:
+    """下发给模型的 schema，enum 必须恰好等于允许集。"""
+    profile, grammar = _knee_profile_and_grammar(exercise_db)
+    captured = {}
+
+    def fake_llm(payload, schema):
+        captured["payload"] = payload
+        captured["schema"] = schema
+        return {}
+
+    PlanAgent(llm_plan_fn=fake_llm).generate(profile, grammar, "full_body")
+
+    enum = captured["schema"]["schema"]["properties"]["warm_up"]["items"]["properties"]["exercise_id"]["enum"]
+    assert set(enum) == set(profile.allowed_ids)
+    assert not (set(enum) & set(profile.forbidden_reasons))
+    assert captured["schema"]["strict"] is True
+    # 请求体里也不得出现伤病原文
+    dumped = json.dumps(captured["payload"], ensure_ascii=False)
+    assert "meniscus" not in dumped and "injury" not in dumped
+
+
+def test_llm_backend_rejects_forbidden_ids_at_parse(exercise_db) -> None:
+    """模型即便吐了禁忌 ID，解析阶段就要挡回，绝不进 draft。"""
+    profile, grammar = _knee_profile_and_grammar(exercise_db)
+    forbidden = sorted(profile.forbidden_reasons)[:3]
+    good = list(profile.allowed_ids)[:3]
+
+    def rogue_llm(payload, schema):
+        return {
+            "warm_up": [{"exercise_id": forbidden[0], "sets": 2, "reps": "15", "impact": 1}],
+            "main_lifts": [
+                {"exercise_id": forbidden[1], "sets": 4, "reps": "6-8", "impact": 4},
+                {"exercise_id": good[0], "sets": 4, "reps": "6-8", "impact": 2},
+            ],
+        }
+
+    draft = PlanAgent(llm_plan_fn=rogue_llm).generate(profile, grammar, "full_body")
+
+    assert draft.generator == "llm"
+    assert not (set(draft.all_ids()) & set(profile.forbidden_reasons))
+    assert set(draft.rejected_ids) == set(forbidden[:2])
+    assert good[0] in draft.all_ids()
+    # 落进 draft 的东西仍然要能通过评估
+    assert SafetyEvalAgent().evaluate(draft, profile, grammar).passed
+
+
+def test_llm_backend_falls_back_to_deterministic_on_error(exercise_db) -> None:
+    profile, grammar = _knee_profile_and_grammar(exercise_db)
+
+    def broken_llm(payload, schema):
+        raise RuntimeError("api down")
+
+    draft = PlanAgent(llm_plan_fn=broken_llm).generate(profile, grammar, "full_body", seed=1)
+    assert draft.generator == "deterministic"
+    assert draft.slot_count() > 0
+    assert not (set(draft.all_ids()) & set(profile.forbidden_reasons))
