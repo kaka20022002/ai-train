@@ -1,0 +1,194 @@
+"""编排层 —— 三个 Agent 串行执行，只传结构化字段。
+
+审计思路：每一次 Agent 调用都记录 ``输入摘要 → 输出结构``，全程无自然语言。
+任何一份计划都能回溯到：当时用的是哪个风险档案（``profile_hash``）、
+哪版文法（``grammar_version``）、生成器是谁、评估出几条违规在哪个槽位。
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence
+
+from agents.contracts import PHASES, PlanDraft, RiskProfile, SafetyReport, Slot
+from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
+from agents.plan_agent import PHASE_PRESCRIPTION, PlanAgent
+from agents.safety_agent import SafetyEvalAgent
+from agents.state_agent import StateRiskAgent
+
+PIPELINE_VERSION = "pipeline/1.0.0"
+
+
+@dataclass
+class PipelineAudit:
+    """逐条结构化审计记录。"""
+
+    entries: List[Dict[str, Any]] = field(default_factory=list)
+
+    def record(self, stage: str, payload_in: Dict[str, Any], payload_out: Dict[str, Any]) -> None:
+        self.entries.append(
+            {
+                "seq": len(self.entries) + 1,
+                "stage": stage,
+                "in": payload_in,
+                "out": payload_out,
+            }
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"pipeline_version": PIPELINE_VERSION, "entries": self.entries}
+
+
+@dataclass
+class GenerationResult:
+    profile: RiskProfile
+    draft: PlanDraft
+    report: SafetyReport
+    audit: PipelineAudit
+    repaired: bool = False
+    repair_rounds: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "profile": self.profile.to_dict(),
+            "draft": self.draft.to_dict(),
+            "safety": self.report.to_dict(),
+            "repaired": self.repaired,
+            "repair_rounds": self.repair_rounds,
+            "audit": self.audit.to_dict(),
+        }
+
+
+def run_pipeline(
+    exercise_db: Sequence[Dict[str, Any]],
+    user_profile: Dict[str, Any],
+    feedback: Optional[Dict[str, Any]] = None,
+    workout_type: str = "full_body",
+    plan_agent: Optional[PlanAgent] = None,
+    max_repair: int = 2,
+    seed: Optional[int] = None,
+) -> GenerationResult:
+    """跑完整条链路：状态分析 → 计划生成 → 安全评估 →（必要时）修复。"""
+    audit = PipelineAudit()
+    index = build_exercise_index(exercise_db)
+
+    # ── Stage 1：状态与风险分析 ───────────────────────────────────────────
+    state_agent = StateRiskAgent(exercise_db)
+    profile = state_agent.analyze(user_profile, feedback)
+    SafetyEvalAgent.assert_grammar_invariant(profile)
+
+    grammar = compile_risk_grammar(profile, index)
+    audit.record(
+        "state_risk",
+        {
+            "user_id": profile.user_id,
+            "injury_joints": sorted(profile.joint_caps),
+            "feedback_keys": sorted((feedback or {}).keys()),
+        },
+        {
+            "profile_hash": profile.profile_hash,
+            "allowed": len(profile.allowed_ids),
+            "forbidden": len(profile.forbidden_reasons),
+            "joint_caps": profile.joint_caps,
+            "impact_ceiling": profile.impact_ceiling,
+            "load_pct_cap": profile.load_pct_cap,
+            "rules": len(profile.rules),
+        },
+    )
+
+    # ── Stage 2：计划生成（只在允许集内采样）──────────────────────────────
+    agent = plan_agent or PlanAgent()
+    draft = agent.generate(profile, grammar, workout_type, seed=seed)
+    audit.record(
+        "plan_gen",
+        {
+            "profile_hash": profile.profile_hash,
+            "grammar_version": grammar.version,
+            "candidate_ids": len(grammar.allowed_ids),
+            "workout_type": workout_type,
+        },
+        {
+            "plan_id": draft.plan_id,
+            "generator": draft.generator,
+            "slots": draft.slot_count(),
+            "ids": draft.all_ids(),
+        },
+    )
+
+    # ── Stage 3：安全评估 ─────────────────────────────────────────────────
+    evaluator = SafetyEvalAgent()
+    report = evaluator.evaluate(draft, profile, grammar)
+    audit.record(
+        "safety_eval",
+        {"plan_id": draft.plan_id, "profile_hash": profile.profile_hash},
+        report.to_dict(),
+    )
+
+    # ── Stage 4：修复回路（用文法重新补位，不靠模型重生成）────────────────
+    repaired = False
+    rounds = 0
+    while not report.passed and rounds < max_repair:
+        rounds += 1
+        draft = _repair(draft, grammar, report)
+        report = evaluator.evaluate(draft, profile, grammar)
+        repaired = True
+        audit.record(
+            "repair",
+            {"round": rounds, "plan_id": draft.plan_id},
+            {"passed": report.passed, "violations": len(report.violations)},
+        )
+
+    return GenerationResult(
+        profile=profile,
+        draft=draft,
+        report=report,
+        audit=audit,
+        repaired=repaired,
+        repair_rounds=rounds,
+    )
+
+
+def _repair(draft: PlanDraft, grammar: RiskGrammar, report: SafetyReport) -> PlanDraft:
+    """丢掉违规槽位，并从文法候选集补位 —— 补位过程天然不会引入禁忌动作。"""
+    bad = {(v.phase, v.exercise_id) for v in report.violations if v.phase in PHASES}
+    phases: Dict[str, List[Slot]] = {}
+    used = [s.exercise_id for p, s in draft.iter_slots() if (p, s.exercise_id) not in bad]
+
+    for phase in PHASES:
+        keep = [s for s in draft.phases.get(phase, []) if (phase, s.exercise_id) not in bad]
+        target = max(len(keep), PHASE_PRESCRIPTION[phase]["count"]) if phase != "warm_up" else len(keep)
+        spec = PHASE_PRESCRIPTION[phase]
+        if len(keep) < target:
+            for eid in grammar.candidates(phase, exclude=used):
+                if len(keep) >= target:
+                    break
+                if grammar.impact_of(eid) > min(spec["max_impact"], grammar.profile.impact_ceiling):
+                    continue
+                keep.append(
+                    Slot(
+                        exercise_id=eid,
+                        sets=int(spec["sets"]),
+                        reps=str(spec["reps"]),
+                        load_pct=(
+                            None
+                            if spec["load_pct"] is None
+                            else min(spec["load_pct"], grammar.profile.load_pct_cap or 100)
+                        ),
+                        impact=grammar.impact_of(eid),
+                    )
+                )
+                used.append(eid)
+        phases[phase] = keep
+
+    return PlanDraft(
+        plan_id=draft.plan_id,
+        user_id=draft.user_id,
+        workout_type=draft.workout_type,
+        phases=phases,
+        generator=draft.generator,
+        grammar_version=draft.grammar_version,
+        prompt_version=draft.prompt_version,
+        profile_hash=draft.profile_hash,
+    )
+
+
+__all__ = ["run_pipeline", "GenerationResult", "PipelineAudit", "PIPELINE_VERSION"]
