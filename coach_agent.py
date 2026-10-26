@@ -71,7 +71,7 @@ SUPPORTED_ACTIONS = {
 
 
 # Prompt 版本号：论文实验与回归测试需要固定住 prompt 变体，改动 prompt 时必须同步升版本。
-COACH_PROMPT_VERSION = "2.1.0"
+COACH_PROMPT_VERSION = "2.2.0"
 
 # 2048 装不下一份带组次/负荷/注意事项的完整下肢方案 —— 实测会在「最后
 # 还有三个问题要确认」处被截断，用户看到的是半句话。3000 够放完整方案
@@ -87,7 +87,14 @@ COACH_SYSTEM_PROMPT = """你是一名 AI 健身教练，名字叫 Coach。你拥
 - 直接但不冒犯：发现问题时明确指出，但措辞鼓励
 - 数据驱动：回答时引用用户的具体训练数据（自觉强度、完成率、疼痛记录），而非泛泛而谈
 - 全部使用简体中文，面向用户的表述不得出现英文缩写（用「自觉强度」代替 RPE，用「一次最大重量」代替 1RM）
-- 纯文本输出：不要使用 Markdown。禁止出现 **加粗**、*斜体*、# 标题、--- 分隔线、``` 代码块、[]() 链接等符号。列表用「1. 2. 3.」或「·」即可，用空行分段
+- 输出格式（前端会把下面这套轻量排版渲染成卡片，务必遵守，否则手机上会挤成一整段）：
+    · 章节标题用「### 标题」，全文最多 4 个，常用：「### 结论」「### 为什么这么安排」「### 一次训练这样练」「### 需要注意」
+    · 要点一行一条，用「· 」开头，一条不超过 40 字
+    · 有先后的步骤用「1. 2. 3.」
+    · 动作行固定写成：`1. 动作名 · 3 组 × 12 次`（剂量放在动作名后面，用「 · 」分隔，组次之间用「 × 」）；按时间做的写 `1. 固定单车 · 4 分钟`
+    · 动作要点另起一行，前面留两个空格再写「· 」，一条一行，不要写成长句
+    · 段与段之间空一行
+    · 禁止：代码块、表格、链接、引用块、一级/二级标题、加粗和斜体符号
 
 【你的工作方式】
 1. 你会在每轮对话开始时收到一段【用户上下文】，里面包括：
@@ -162,7 +169,13 @@ class ActionRequest:
 
 def sanitize_coach_plaintext(text: str) -> str:
     """
-    Strip Markdown decorations so chat UIs (esp. mini program) show clean Chinese.
+    把模型输出收敛到「轻量排版」这一受控子集，交给前端 MarkdownLite 渲染。
+
+    保留：`### 标题`、`· 项目`、`1. 项目`、行首缩进（要点层级）、空行分段。
+    去掉：代码块围栏、加粗/斜体标记、链接语法、表格分隔线、水平分隔线。
+
+    保留标题与列表是刻意的 —— 前端据这些行渲染成卡片式的章节与动作行；
+    但加粗符号一律剥掉，避免旧版小程序（不认 Markdown）把 `**` 直接显示出来。
     Keeps ACTION_REQUEST blocks intact if present — call after parse_action_request.
     """
     if not text:
@@ -171,23 +184,29 @@ def sanitize_coach_plaintext(text: str) -> str:
     # fenced code blocks → inner text
     out = re.sub(r"```[\w+-]*\n?", "", out)
     out = out.replace("```", "")
-    # headings
-    out = re.sub(r"(?m)^#{1,6}\s*", "", out)
-    # bold / italic / underline markers
+    # 标题：# / ## / ### 统一收敛成三级（前端只认三级）
+    out = re.sub(r"(?m)^\s*#{1,6}\s*", "### ", out)
+    # bold / italic / underline markers → 去符号留字
     out = re.sub(r"\*\*\*(.+?)\*\*\*", r"\1", out)
     out = re.sub(r"\*\*(.+?)\*\*", r"\1", out)
     out = re.sub(r"__(.+?)__", r"\1", out)
     out = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", out)
     out = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1", out)
     out = re.sub(r"`([^`]+)`", r"\1", out)
-    # links / images
+    # links / images → 留文字
     out = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", out)
     out = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", out)
-    # horizontal rules and leftover emphasis runs
+    # 表格分隔行与水平分隔线：整行丢弃
+    out = re.sub(r"(?m)^\s*\|?[\s:|-]{4,}\|?\s*$", "", out)
     out = re.sub(r"(?m)^\s*([-*_]\s*){3,}\s*$", "", out)
+    # 残留的裸标记
     out = out.replace("**", "").replace("__", "")
-    # collapse excess blank lines
+    # 列表符号统一：* - • → ·
+    out = re.sub(r"(?m)^(\s*)[*-•]\s+", r"\1· ", out)
+    # 折叠多余空行
     out = re.sub(r"\n{3,}", "\n\n", out)
+    # 去掉行尾空白，避免前端把空格当换行
+    out = re.sub(r"[ \t]+$", "", out, flags=re.M)
     return out.strip()
 
 

@@ -32,6 +32,30 @@ WHISPER_MODEL=whisper-1
 
 正式 AppID 若要用「同声传译」插件：公众平台添加插件后，在 `app.config.ts` 恢复 `plugins.WechatSI` 声明即可。
 
+## AI 教练 · 回复排版
+
+教练回复不再是一坨纯文本。后端 `sanitize_coach_plaintext()` 只保留一套轻量语法，
+前端 `components/MarkdownLite.tsx` 负责渲染：
+
+| 语法 | 渲染成 |
+|---|---|
+| `### 结论` | 左侧色条的章节标题 |
+| `· 要点` | 圆点列表（缩进 2 格为子要点） |
+| `1. 臀桥 · 3 组 × 12 次` | 方形序号 + 动作名 + 右侧「3 组 × 12 次」剂量徽章 |
+| `1. 现在膝盖疼吗？……` | 超过 20 字且无剂量的有序项按段落排，不套序号徽章 |
+| 空行 | 分段 |
+
+加粗、表格、代码块仍会被剥掉（旧客户端不会渲染），所以提示词里也禁止模型使用。
+
+修改排版后可以用脚本核对解析结果，不必等浏览器：
+
+```bash
+node scripts/check-markdown.mjs ../docs/coach_reply_sample.md
+# blocks=33  heading=4  item=26  para=3  divider=0
+# [H]   结论
+# [O] 2. 臀桥  ⟨3 组 × 12 次⟩
+```
+
 ## 底部 Tab（5）
 
 今日训练 · 计划 · 动作库 · AI 教练 · 我的

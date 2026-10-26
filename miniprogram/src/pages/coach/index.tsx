@@ -3,6 +3,7 @@ import { View, Text, Textarea, ScrollView } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { api, ensureLoggedIn } from "../../services/api";
 import { createVoiceInput, type VoiceStatus } from "../../utils/voice-input";
+import MarkdownLite from "../../components/MarkdownLite";
 import "./index.scss";
 
 interface Bubble {
@@ -154,7 +155,11 @@ export default function CoachPage() {
               {m.role === "assistant" && (
                 <Text className="bubble-role">Coach</Text>
               )}
-              <Text className="bubble-text">{m.content}</Text>
+              {m.role === "assistant" ? (
+                <MarkdownLite text={m.content} />
+              ) : (
+                <Text className="bubble-text">{m.content}</Text>
+              )}
             </View>
           ))}
           {sending && (
