@@ -403,13 +403,23 @@ class StateRiskAgent:
             return replace(base, llm_status="empty")
 
         payload = self._build_enhance_payload(base, user_profile, feedback)
-        try:
-            raw = self._llm_enhance_fn(payload)  # type: ignore[misc]
-        except Exception as exc:  # noqa: BLE001 - 任何失败都必须退回规则结果
+        raw: Any = None
+        last_error: Optional[Exception] = None
+        # 模型偶发返回不可解析的内容（实测约每 3 次 1 次）。这里重试一次：
+        # 失败一次的代价是整份安全收紧全部丢失、退回最宽松基线，
+        # 比多花一次 token 贵得多。
+        for _ in range(2):
+            try:
+                raw = self._llm_enhance_fn(payload)  # type: ignore[misc]
+                last_error = None
+                break
+            except Exception as exc:  # noqa: BLE001 - 任何失败都必须退回规则结果
+                last_error = exc
+        if last_error is not None:
             return replace(
                 base,
                 llm_status="error",
-                llm_rationale=f"LLM 调用失败，已退回规则结果：{exc}"[:240],
+                llm_rationale=f"LLM 调用失败（已重试 1 次），退回规则结果：{last_error}"[:240],
                 llm_prompt_version=STATE_RISK_PROMPT_VERSION,
             )
         if not isinstance(raw, dict):
@@ -751,15 +761,29 @@ class StateRiskAgent:
         ceiling = 5
         load_cap: Optional[int] = None
 
+        # 疼痛有两种真实写法：
+        #   {"has_pain": true, "locations": [...]}      —— 「是/否」式提交
+        #   {"knee": 3, "lower_back": 2}                —— 前端疼痛量表
+        # 后者以前被漏掉，导致有痛记录被当成无痛（模型一旦失败就直接宽松）。
         pain = feedback.get("pain_feedback") or {}
-        if pain.get("has_pain"):
+        pain_scores = [
+            value
+            for value in pain.values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        has_pain = bool(pain.get("has_pain")) or any(score > 0 for score in pain_scores)
+        if has_pain:
             ceiling = 3
             load_cap = 60
-            rules.append(RuleSpec("pain_ceiling", "impact_ceiling", "*", ceiling, "feedback:pain"))
-            rules.append(RuleSpec("pain_load", "load_pct", "*", load_cap, "feedback:pain"))
+            source = "feedback:pain"
+            if pain_scores:
+                source = f"feedback:pain={max(pain_scores):g}"
+            rules.append(RuleSpec("pain_ceiling", "impact_ceiling", "*", ceiling, source))
+            rules.append(RuleSpec("pain_load", "load_pct", "*", load_cap, source))
 
-        rpe = feedback.get("rpe")
-        if isinstance(rpe, (int, float)) and rpe >= 8:
+        # 自评强度：兼容 rpe / last_rpe 两种字段名
+        rpe = feedback.get("rpe", feedback.get("last_rpe"))
+        if isinstance(rpe, (int, float)) and not isinstance(rpe, bool) and rpe >= 8:
             if load_cap is None or load_cap > 70:
                 load_cap = 70
             rules.append(RuleSpec("rpe_load", "load_pct", "*", 70, f"feedback:rpe={rpe}"))
