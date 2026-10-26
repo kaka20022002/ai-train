@@ -1,8 +1,8 @@
 """把同一个 LLM 客户端切成三个不同职责的 Agent 调用入口。
 
 这里只做一件事：**结构化 payload → prompt 文本 → 结构化 dict**。
-业务校验一概不在此处发生 —— 越界过滤、单向约束合并、合取判定都在
-各自的 Agent 里做，这样换掉 provider 或换掉 prompt 都不会让校验逻辑消失。
+业务校验一概不在此处发生 —— 单向约束合并、基线证据生成、审查裁决都在
+各自的 Agent 里做，这样换掉 provider 或换掉 prompt 都不会让责任边界消失。
 
 为什么共用一份 client：
     同一 provider、同一个 key、同一个 base_url，三个 Agent 的差别只在
@@ -11,8 +11,8 @@
 
 三个 fn 的签名刻意不一致，因为它们的契约本身不同：
     state_fn(payload)              → 单向增强用的追加建议
-    plan_fn(payload, schema)       → 只有 ID 的草稿
-    safety_fn(payload)             → pass/fail + 枚举违规码
+    plan_fn(payload, schema)       → 完整计划的槽位（全库自由生成）
+    safety_fn(payload)             → pass/fail + 枚举违规码（最终裁决）
 """
 
 from __future__ import annotations
@@ -77,31 +77,31 @@ def make_state_llm_fn(client: _JsonClient) -> StateFn:
 # ── Agent 2：计划生成 ─────────────────────────────────────────────────────
 def make_plan_llm_fn(client: _JsonClient) -> PlanFn:
     def plan_fn(payload: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
-        # schema 目前只能作为形状提示写进 prompt：DeepSeek 与多数兼容网关
-        # 只支持 json_object 模式，不支持把 JSON Schema 下发到解码器做 enum
-        # mask。因此 enum 约束仍由 PlanAgent 在解析处兑现。
+        # schema 只描述形状，不含 enum：取值由模型决定，由审查 Agent 事后核对。
+        task = (
+            "为这位用户设计一整节训练课：从全量动作库中选动作、分配到阶段、"
+            "给出每个动作的组次负荷与休息。"
+        )
+        if payload.get("review_feedback"):
+            task += "这是修订轮 —— 按 review_feedback 逐条修正，其余部分保持不变。"
         enriched = dict(payload)
         enriched["output_schema"] = schema
         return client.chat_json(
             PLAN_GEN_SYSTEM_PROMPT,
-            _render_user_prompt(
-                "从各阶段候选动作中挑选本课动作。只返回 exercise_id，"
-                "不要给出组数、次数或负荷。",
-                enriched,
-            ),
+            _render_user_prompt(task, enriched),
         )
 
     return plan_fn
 
 
-# ── Agent 3：安全评估 ─────────────────────────────────────────────────────
+# ── Agent 3：安全审查 ─────────────────────────────────────────────────────
 def make_safety_llm_fn(client: _JsonClient) -> SafetyFn:
     def safety_fn(payload: Dict[str, Any]) -> Dict[str, Any]:
         return client.chat_json(
             SAFETY_EVAL_SYSTEM_PROMPT,
             _render_user_prompt(
-                "审查这份训练计划是否违反给定的风险约束，"
-                "返回 verdict 与违规清单（使用枚举码）。",
+                "独立复核这份训练计划：确认或否决 baseline_flags，"
+                "给出 verdict 与违规清单（使用枚举码）。你的 verdict 就是最终结论。",
                 payload,
             ),
         )

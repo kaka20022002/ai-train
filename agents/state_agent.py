@@ -2,27 +2,27 @@
 
 职责边界（刻意收窄）：
     输入：用户档案（dict）、可选训练反馈（dict）
-    输出：``RiskProfile`` —— 只有 ID 集合、关节上限、阈值和规则清单
+    输出：``RiskProfile`` —— 禁忌清单、关节上限、阈值、病历语义约束
            **不产出任何自然语言**，也不产出计划。
 
-它把「状态」和「禁忌」两件事收敛成一份可执行约束，后续两个 Agent 不再
-重新解释伤病，只消费这份结构化结果。
+v3 变更（规则降级为「基线证据」）：
 
-v2 变更（LLM 增强通道）：
-    规则引擎仍是**唯一的下限来源**，LLM 只在规则之外做**单向追加**：
+    上一版里，这里算出的 ``forbidden_reasons`` 会被编译成文法，物理性地把
+    禁忌动作从生成端移走。现在不再这么做 —— 生成端拿到全库，这份清单以
+    ``baseline`` 的名义作为**参考证据**传下去，由生成端自行取舍、由审查端
+    裁决。规则仍然算，只是不再一票否决。
 
-        allowed_new  = allowed_rule − LLM 追加的禁忌
-        joint_cap_new = min(joint_cap_rule, LLM 建议值)
-        ceiling_new   = min(ceiling_rule, LLM 建议值)
+    因此本 Agent 的产出有两个身份：
+        对生成端   一份「我认为这些动作有风险，理由在此」的提示
+        对审查端   一份「可核对的清单」，用来交叉检查生成端是否越线
 
-    也就是说 LLM 的每一类输出都只能让约束**更严**。它提议移除禁忌、
-    或把上限调高，都会被静默丢弃并计入 ``llm_status``。这样做的原因是
-    上游一旦可以被放宽，下游两个 Agent 的合规性就不再可证明 ——
-    ``SafetyEvalAgent.assert_grammar_invariant`` 那类不变量必须永远成立。
+    LLM 通道保持「只能更严」：它提议移除禁忌、或把上限调高，都会被静默丢弃
+    并计入 ``llm_status``。理由不变 —— 上游一旦可以被放宽，
+    ``forbidden`` 这份证据就失去了可信度。
 
     LLM 的真实收益是规则表结构性看不到的东西：病历自由文本
     （"右膝 ACL 术后两年，深蹲到不了底"）、多条伤情叠加后的整体保守需求。
-    因此只把「涉及受伤关节的动作」发给它，而不是整库 70 条。
+    因此只把「涉及受伤关节的动作」发给它，而不是整库 77 条。
 """
 from __future__ import annotations
 
@@ -80,8 +80,16 @@ class StateRiskAgent:
             user_context=self._build_user_context(user_profile, workout_type, query),
         )
         if self._llm_enhance_fn is None:
-            return replace(base, llm_status="skipped")
-        return self._enhance(base, user_profile, feedback)
+            return self._finalize(replace(base, llm_status="skipped"))
+        return self._finalize(self._enhance(base, user_profile, feedback))
+
+    @staticmethod
+    def _finalize(profile: RiskProfile) -> RiskProfile:
+        """允许集与禁忌集必须互斥；不成立说明编译出错，应立即失败。"""
+        overlap = set(profile.allowed_ids) & set(profile.forbidden_reasons)
+        if overlap:
+            raise AssertionError(f"允许集与禁忌集重叠: {sorted(overlap)[:5]}")
+        return profile
 
     # ── 规则后端（唯一的下限来源）─────────────────────────────────────────
     def _analyze_rules(
@@ -466,6 +474,13 @@ class StateRiskAgent:
             "available_equipment": _clean_list(user_profile.get("available_equipment")),
             "workout_type": workout_type,
             "query": str(query or "").strip(),
+            # 病历原文一并透传：生成端要判断「这条基线禁忌是否适用于本次训练」，
+            # 审查端要独立复核，两边都不能只看到被编译过的结论。
+            "medical_history": [
+                {k: item.get(k) for k in ("location", "condition", "severity", "pain_trigger", "notes") if item.get(k)}
+                for item in (user_profile.get("medical_history") or [])
+                if isinstance(item, dict)
+            ],
         }
 
         cleaned_prefs: Dict[str, Any] = {}

@@ -1,19 +1,20 @@
-"""验证 v3 的权力结构：模型决策、规则兜底。
+"""锁定 v4 的权力结构：模型全权决策，规则只出现在「基线证据」与「降级后端」两处。
 
-这组测试锁的是三件事：
-    1. 模型给出的 sets / reps / load / rest / note **确实被采纳** ——
-       否则「让大模型来」只是一句口号；
-    2. 模型越界时参数被**夹紧**而不是静默丢弃，且计数进 ``adjusted_slots``；
-    3. 兜底层依然完整 —— 禁忌 ID、阶段错配、非法参数进不了最终计划。
+这组测试锁五件事：
+    1. 动作库**全量**下发 —— 没有候选裁剪、没有 enum、没有阶段硬过滤；
+    2. 模型给的 sets / reps / load / rest / note 原样落库，**越界也不夹紧**；
+    3. 模型少给就少给 —— 不再由规则补位到固定数量；
+    4. 唯一的硬清洗是「ID 必须对得上知识库」，因为渲染不出名字；
+    5. 上游基线（禁忌 / 模式 / 上限）以参考证据的形式随请求下发，
+       并且审查意见可以通过 ``revise`` 回灌给同一个生成 Agent。
 """
 from __future__ import annotations
 
 import pytest
 
-from agents.contracts import Slot
-from agents.grammar import build_exercise_index, compile_risk_grammar
+from agents.catalog import ExerciseCatalog
+from agents.contracts import PHASES, PlanDraft, Slot
 from agents.plan_agent import PlanAgent
-from agents.prescription import prescription_bounds
 from agents.state_agent import StateRiskAgent
 
 KNEE_HIGH = {
@@ -34,30 +35,71 @@ KNEE_HIGH = {
 @pytest.fixture()
 def env(risk_engine):
     db = risk_engine.exercise_db
-    index = build_exercise_index(db)
+    catalog = ExerciseCatalog(db)
     profile = StateRiskAgent(db).analyze(KNEE_HIGH, None)
-    grammar = compile_risk_grammar(profile, index)
-    return db, index, profile, grammar
+    return db, catalog, profile
 
 
-def _first(rows, **want):
-    for row in rows:
-        if all(row.get(k) == v for k, v in want.items()):
+def _pick(catalog: ExerciseCatalog, phase: str) -> dict:
+    for row in catalog.rows():
+        if phase in row["phases"]:
             return row
-    return None
+    raise AssertionError(f"动作库里没有属于 {phase} 的动作")
 
 
-# ── 模型决策权 ──────────────────────────────────────────────────────────────
-def test_model_supplied_params_are_adopted(env) -> None:
-    """模型给在区间内的参数，必须原样出现在计划里。"""
-    _, _, profile, grammar = env
+# ── 全库视野 ────────────────────────────────────────────────────────────────
+def test_catalog_payload_is_unfiltered(env) -> None:
+    """生成端拿到的是整库，不是「允许集」。"""
+    db, catalog, profile = env
+    payload = PlanAgent().build_request_payload(profile, catalog, "full_body")
+
+    rows = payload["exercise_catalog"]
+    assert len(rows) == len(db) == len(catalog)
+    # 基线里的禁忌动作照样出现在目录里（模型自己看 baseline 判断）
+    forbidden = set(profile.forbidden_reasons)
+    assert forbidden, "测试前提：膝伤 HIGH 应有基线禁忌"
+    assert forbidden <= {row["exercise_id"] for row in rows}
+    # 每条都带阶段归属，模型据此决定放哪里
+    assert all(row["phases"] for row in rows)
+
+
+def test_schema_carries_no_enum(env) -> None:
+    """解码期不再 mask —— schema 只描述形状。"""
+    _, catalog, _ = env
+    schema = catalog.slot_schema()["schema"]
+    for phase in PHASES:
+        item = schema["properties"][phase]["items"]
+        assert "enum" not in item["properties"]["exercise_id"]
+
+
+def test_baseline_is_evidence_not_constraint(env) -> None:
+    """基线以「参考意见」名义下发，附带说明它不是硬约束。"""
+    _, catalog, profile = env
+    payload = PlanAgent().build_request_payload(profile, catalog, "full_body")
+    baseline = payload["baseline"]
+
+    assert "不是硬约束" in baseline["note"]
+    assert {row["exercise_id"] for row in baseline["forbidden_exercises"]} == set(
+        profile.forbidden_reasons
+    )
+    assert baseline["impact_ceiling"] == profile.impact_ceiling
+    assert baseline["joint_caps"] == profile.joint_caps
+    # 病历原文也要给到生成端，否则它无从判断某条禁忌是否适用于本次训练
+    assert payload["medical_history"], "病历原文必须进入生成端"
+
+    # 参考剂量表在，但明确是「参考」
+    assert payload["reference_doses"]
+    assert {"phase", "type", "sets", "reps"} <= set(payload["reference_doses"][0])
+
+
+# ── 模型决策权：原样采纳 ────────────────────────────────────────────────────
+def test_model_supplied_params_are_adopted_verbatim(env) -> None:
+    _, catalog, profile = env
+    target = _pick(catalog, "warm_up")
     captured = {}
 
     def fake_plan(payload, schema):
-        warm = payload["phase_candidates"]["warm_up"]
-        target = warm[0]
-        captured["id"] = target["exercise_id"]
-        # 完全按模型自己的判断给参数（Wrapup 区间 1-2 组 / 8-15 次 / 无负荷）
+        captured["payload"] = payload
         return {
             "warm_up": [
                 {
@@ -71,58 +113,25 @@ def test_model_supplied_params_are_adopted(env) -> None:
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
     slot = draft.phases["warm_up"][0]
 
     assert draft.generator == "llm"
-    assert slot.exercise_id == captured["id"]
-    assert (slot.sets, slot.reps, slot.load_pct) == (2, "14 次", None)
+    assert slot.exercise_id == target["exercise_id"]
+    assert (slot.sets, slot.reps, slot.load_pct) == (2, "14", None)
     assert slot.rest_seconds == 25
     assert slot.note == "髋部还没热开，先小幅活动"
     assert draft.adjusted_slots == 0
+    # payload 里带 schema 形状提示（由 bridge 附加），Agent 侧不注入 enum
+    assert captured["payload"]["catalog_version"] == catalog.version
 
 
-def test_model_load_pct_is_adopted_for_compound(env) -> None:
-    """主项复合动作的负荷百分比由模型决定，规则只保证在区间内。"""
-    _, _, profile, grammar = env
-
-    def fake_plan(payload, schema):
-        rows = payload["phase_candidates"]["main_lifts"]
-        target = next((r for r in rows if not r.get("bodyweight")), None)
-        if target is None:
-            return {}
-        b = prescription_bounds("main_lifts", grammar.index[target["exercise_id"]],
-                                profile.load_pct_cap)
-        # 选区间上限，模拟模型判断「这位用户今天状态好」
-        return {
-            "main_lifts": [
-                {
-                    "exercise_id": target["exercise_id"],
-                    "sets": b.sets_max,
-                    "reps": str(b.reps_max),
-                    "load_pct": b.load_max,
-                    "rest_seconds": 120,
-                    "note": "状态好，顶到上限",
-                }
-            ]
-        }
-
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
-    slot = draft.phases["main_lifts"][0]
-    b = prescription_bounds("main_lifts", grammar.index[slot.exercise_id],
-                            profile.load_pct_cap)
-    assert slot.sets == b.sets_max
-    assert slot.load_pct == b.load_max
-    assert draft.adjusted_slots == 0
-
-
-# ── 规则兜底 ────────────────────────────────────────────────────────────────
-def test_out_of_range_params_are_clamped_not_dropped(env) -> None:
-    """越界参数被夹到边界，动作本身保留 —— 夹紧比丢弃更符合「模型主决策」。"""
-    _, _, profile, grammar = env
+def test_out_of_range_params_are_kept_as_is(env) -> None:
+    """越界不再被夹紧 —— 「合不合理」由审查 Agent 判，不由解析层偷偷改。"""
+    _, catalog, profile = env
+    target = _pick(catalog, "warm_up")
 
     def fake_plan(payload, schema):
-        target = payload["phase_candidates"]["warm_up"][0]
         return {
             "warm_up": [
                 {
@@ -136,21 +145,20 @@ def test_out_of_range_params_are_clamped_not_dropped(env) -> None:
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
     slot = draft.phases["warm_up"][0]
-    b = prescription_bounds("warm_up", grammar.index[slot.exercise_id], profile.load_pct_cap)
 
-    assert slot.sets == b.sets_max
-    assert slot.load_pct is None          # 热身动作不允许标负荷，越界的丢掉了
-    assert slot.rest_seconds == 300       # 夹到上限
-    assert draft.adjusted_slots >= 1
-    # 夹紧之后必须能通过谓词校验
-    assert grammar.validate(slot, "warm_up") is None
+    assert slot.sets == 99
+    assert slot.reps == "500"
+    assert slot.load_pct == 300
+    # 休息时长只做渲染兜底（负数/天文数字会让时长估算失真）
+    assert slot.rest_seconds == 600
+    assert draft.adjusted_slots == 0
 
 
-def test_forbidden_id_from_model_is_rejected(env) -> None:
-    """模型幻觉出一个禁忌动作，依然进不了 draft。"""
-    _, _, profile, grammar = env
+def test_model_may_choose_a_baseline_forbidden_exercise(env) -> None:
+    """基线禁忌不再被解析层挡掉 —— 模型可以调用，代价是被审查驳回。"""
+    _, catalog, profile = env
     forbidden_id = sorted(profile.forbidden_reasons)[0]
 
     def fake_plan(payload, schema):
@@ -160,148 +168,205 @@ def test_forbidden_id_from_model_is_rejected(env) -> None:
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
-    assert forbidden_id not in draft.all_ids()
-    assert forbidden_id in draft.rejected_ids
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    assert forbidden_id in draft.all_ids()
+    assert draft.rejected_ids == ()
 
 
-def test_phase_mismatch_is_rejected(env) -> None:
-    """把放松类动作塞进主项段，ID 合法也要挡回。"""
-    _, _, profile, grammar = env
-    cool = grammar.candidates("cool_down")
-    assert cool, "放松段应有候选"
+def test_phase_assignment_is_left_to_the_model(env) -> None:
+    """把拉伸放进主项段不再被解析层拒绝 —— 由审查 Agent 判 SEQUENCE。"""
+    _, catalog, profile = env
+    stretch = next(
+        row for row in catalog.rows()
+        if row["type"] == "Stretch"
+    )
 
     def fake_plan(payload, schema):
         return {
             "main_lifts": [
-                {"exercise_id": cool[0], "sets": 3, "reps": "8", "load_pct": 70}
+                {"exercise_id": stretch["exercise_id"], "sets": 2, "reps": "30"}
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
-    # 该动作被主项段拒绝（进了 rejected_ids），但它本身是合法的放松动作，
-    # 补位时仍可能出现在 cool_down 段 —— 所以只断言它没进主项段。
-    assert cool[0] not in [s.exercise_id for s in draft.phases["main_lifts"]]
-    assert cool[0] in draft.rejected_ids
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    assert [s.exercise_id for s in draft.phases["main_lifts"]] == [stretch["exercise_id"]]
 
 
-def test_missing_params_fall_back_to_prescription(env) -> None:
-    """模型只给 ID 不给参数时，用处方推荐值兜底，而不是给出非法默认。"""
-    _, _, profile, grammar = env
+def test_short_phase_is_not_topped_up(env) -> None:
+    """模型只给了 1 个动作，阶段就保留 1 个 —— 不再用规则补位。"""
+    _, catalog, profile = env
+    target = _pick(catalog, "activation")
 
     def fake_plan(payload, schema):
-        target = payload["phase_candidates"]["warm_up"][0]
-        return {"warm_up": [{"exercise_id": target["exercise_id"]}]}
-
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
-    slot = draft.phases["warm_up"][0]
-    assert slot.sets >= 1 and slot.reps.endswith("次")
-    assert grammar.validate(slot, "warm_up") is None
-    assert draft.adjusted_slots >= 1
-
-
-def test_short_phase_is_topped_up(env) -> None:
-    """模型给了但数量不足时，由文法补满，保证计划可用。"""
-    _, _, profile, grammar = env
-
-    def fake_plan(payload, schema):
-        target = payload["phase_candidates"]["activation"][0]
         return {
             "activation": [
                 {"exercise_id": target["exercise_id"], "sets": 2, "reps": "12"}
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, grammar, "full_body")
-    assert len(draft.phases["activation"]) >= 2
-    for slot in draft.phases["activation"]:
-        assert grammar.validate(slot, "activation") is None
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    assert len(draft.phases["activation"]) == 1
+    assert draft.phases["main_lifts"] == []
 
 
-# ── 区间校验 ────────────────────────────────────────────────────────────────
-def test_prescription_range_violation_code(env) -> None:
-    """手工构造越界槽位，谓词必须报 PRESCRIPTION_RANGE。"""
-    _, _, _, grammar = env
-    eid = grammar.candidates("cool_down")[0]
-    b = prescription_bounds("cool_down", grammar.index[eid], None)
+def test_missing_params_fall_back_to_prescription(env) -> None:
+    """参数缺失时用处方默认值补全，并计入 defaulted 计数。"""
+    _, catalog, profile = env
+    target = _pick(catalog, "warm_up")
 
-    bad_sets = Slot(exercise_id=eid, sets=b.sets_max + 5, reps=f"{b.reps_min} 秒", impact=1)
-    v = grammar.validate(bad_sets, "cool_down")
-    assert v is not None and v.code == "PRESCRIPTION_RANGE"
+    def fake_plan(payload, schema):
+        return {"warm_up": [{"exercise_id": target["exercise_id"]}]}
 
-    bad_reps = Slot(exercise_id=eid, sets=b.sets_min, reps="999 秒", impact=1)
-    v2 = grammar.validate(bad_reps, "cool_down")
-    assert v2 is not None and v2.code == "PRESCRIPTION_RANGE"
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    slot = draft.phases["warm_up"][0]
+    assert slot.sets >= 1
+    assert slot.reps
+    assert draft.adjusted_slots == 1
 
 
-def test_stretch_must_not_carry_load(env) -> None:
-    """拉伸给了负荷百分比 → 区间违规。"""
-    _, _, _, grammar = env
-    eid = grammar.candidates("cool_down")[0]
-    b = prescription_bounds("cool_down", grammar.index[eid], None)
-    slot = Slot(exercise_id=eid, sets=b.sets_min, reps=f"{b.reps_min} 秒",
-                load_pct=50, impact=1)
-    v = grammar.validate(slot, "cool_down")
-    assert v is not None and v.code == "PRESCRIPTION_RANGE"
+# ── 唯一的硬清洗：ID 必须存在 ───────────────────────────────────────────────
+def test_unknown_id_is_dropped(env) -> None:
+    _, catalog, profile = env
+    bogus = max(catalog.ids) + 12345
+    good = _pick(catalog, "main_lifts")["exercise_id"]
+
+    def fake_plan(payload, schema):
+        return {
+            "main_lifts": [
+                {"exercise_id": bogus, "sets": 3, "reps": "8"},
+                {"exercise_id": good, "sets": 3, "reps": "8"},
+            ]
+        }
+
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    assert [s.exercise_id for s in draft.phases["main_lifts"]] == [good]
+    assert draft.rejected_ids == (bogus,)
+
+
+def test_duplicate_across_phases_kept_once(env) -> None:
+    _, catalog, profile = env
+    target = _pick(catalog, "main_lifts")
+
+    def fake_plan(payload, schema):
+        item = {"exercise_id": target["exercise_id"], "sets": 3, "reps": "8"}
+        return {"main_lifts": [item], "accessories": [dict(item)]}
+
+    draft = PlanAgent(llm_plan_fn=fake_plan).generate(profile, catalog, "full_body")
+    assert draft.all_ids().count(target["exercise_id"]) == 1
+
+
+# ── 修订轮 ──────────────────────────────────────────────────────────────────
+def test_revise_feeds_back_violations_and_previous_attempt(env) -> None:
+    _, catalog, profile = env
+    target = _pick(catalog, "main_lifts")
+    seen = {}
+
+    def fake_plan(payload, schema):
+        seen.update(payload)
+        return {
+            "main_lifts": [
+                {"exercise_id": target["exercise_id"], "sets": 3, "reps": "6"}
+            ]
+        }
+
+    draft = PlanDraft(
+        plan_id="draft_prev",
+        user_id=profile.user_id,
+        workout_type="full_body",
+        phases={p: [] for p in PHASES} | {"main_lifts": [Slot(target["exercise_id"], 9, "99")]},
+        generator="llm",
+        grammar_version=catalog.version,
+        profile_hash=profile.profile_hash,
+    )
+    violations = [{"code": "VOLUME", "exercise_id": target["exercise_id"], "phase": "main_lifts"}]
+
+    revised = PlanAgent(llm_plan_fn=fake_plan).revise(
+        profile, catalog, draft, violations, "单次 9 组过载"
+    )
+
+    assert revised is not None and revised.generator == "llm_revised"
+    assert seen["review_feedback"]["violations"] == violations
+    assert "previous_attempt" in seen
+    assert revised.phases["main_lifts"][0].sets == 3
+
+
+def test_revise_requires_llm(env) -> None:
+    _, catalog, profile = env
+    draft = PlanDraft(
+        plan_id="p", user_id="u", workout_type="full_body",
+        phases={p: [] for p in PHASES}, generator="deterministic",
+        grammar_version=catalog.version, profile_hash=profile.profile_hash,
+    )
+    agent = PlanAgent()
+    assert agent.can_revise is False
+    assert agent.revise(profile, catalog, draft, []) is None
+
+
+# ── 降级后端仍然完整（没配 key 时的行为）───────────────────────────────────
+def test_deterministic_backend_still_masks(env) -> None:
+    _, catalog, profile = env
+    draft = PlanAgent().generate(profile, catalog, "full_body", seed=3)
+
+    assert draft.generator == "deterministic"
+    assert draft.slot_count() > 0
+    assert not (set(draft.all_ids()) & set(profile.forbidden_reasons))
 
 
 # ── 语义约束（avoid_patterns / session cap）─────────────────────────────────
 def test_avoid_patterns_removes_candidates(env) -> None:
-    """模式禁忌把整类动作从候选池里物理移除。"""
-    _, index, profile, grammar = env
+    """降级后端里模式禁忌仍会把整类动作从候选池移除。"""
+    from dataclasses import replace
+    from agents.grammar import compile_risk_grammar
+
+    _, catalog, profile = env
     squat_ids = [
-        eid for eid, meta in index.items()
+        eid for eid, meta in catalog.index.items()
         if str(meta.get("motion_pattern") or "").lower() == "squat"
     ]
     assert squat_ids, "动作库应包含 squat 模式"
 
-    from dataclasses import replace
     blocked = replace(profile, avoid_patterns=("squat",), profile_hash="")
-    g2 = compile_risk_grammar(blocked, index)
+    g2 = compile_risk_grammar(blocked, catalog.index)
 
     remaining = set()
-    for phase in ("warm_up", "activation", "main_lifts", "accessories", "cool_down"):
+    for phase in PHASES:
         remaining.update(g2.candidates(phase, allow_fallback=True))
     assert not (set(squat_ids) & remaining)
 
 
 def test_session_cap_reaches_plan_payload(env) -> None:
-    """时长上限从档案一路传到生成 Agent 的请求体。"""
-    _, _, profile, grammar = env
     from dataclasses import replace
+
+    _, catalog, profile = env
     capped = replace(profile, session_cap_minutes=35, profile_hash="")
-    g2 = compile_risk_grammar(capped, build_exercise_index(_db_of(env)))
-
-    payload = PlanAgent().build_request_payload(capped, g2, "full_body")
+    payload = PlanAgent().build_request_payload(capped, catalog, "full_body")
     assert payload["session_cap_minutes"] == 35
-    assert "prescription_rules" in payload
     assert payload["fitness_level"] == "beginner"
+    assert "reference_doses" in payload
 
 
-def test_payload_carries_bounds_per_type(env) -> None:
-    """模型必须能从 payload 里读到每类动作的合法区间，否则无从取值。"""
-    _, _, profile, grammar = env
-    payload = PlanAgent().build_request_payload(profile, grammar, "full_body")
-    rules = payload["prescription_rules"]
-    assert rules, "应下发处方区间表"
-    sample = rules[0]
-    assert {"phase", "type", "bodyweight", "sets", "reps", "load_pct"} <= set(sample)
-    assert isinstance(sample["sets"], list) and len(sample["sets"]) == 2
+# ── 基线谓词本身（供审查 Agent 使用的证据来源）───────────────────────────────
+def test_baseline_flags_report_joint_cap(env) -> None:
+    from dataclasses import replace
+    from agents.safety_agent import SafetyEvalAgent
 
-    row = payload["phase_candidates"]["main_lifts"][0]
-    assert {"exercise_id", "type", "impact"} <= set(row)
-    # bodyweight / timed / motion_pattern 只在真值/非空时出现
-    assert set(row) <= {
-        "exercise_id", "name_zh", "type", "impact",
-        "bodyweight", "timed", "motion_pattern",
-    }
-
-
-def _db_of(env):
-    return env[0]
+    _, catalog, profile = env
+    capped = replace(profile, joint_caps={"knee": 1}, impact_ceiling=5, profile_hash="")
+    squat = next(
+        eid for eid, ex in catalog.index.items()
+        if "knee" in ex.get("involved_joints", [])
+    )
+    draft = PlanDraft(
+        plan_id="p", user_id=capped.user_id, workout_type="full_body",
+        phases={p: [] for p in PHASES} | {"main_lifts": [Slot(squat, 3, "10", 50)]},
+        generator="llm", grammar_version=catalog.version,
+        profile_hash=capped.profile_hash,
+    )
+    flags = SafetyEvalAgent._baseline_flags(draft, capped, catalog)
+    assert any(f.code == "JOINT_CAP" for f in flags)
 
 
-# ── Agent 1 的语义通道 ──────────────────────────────────────────────────────
+# ── Agent 1 的语义通道（规则降级为基线，但抽取逻辑不变）─────────────────────
 def test_state_agent_merges_semantic_constraints(risk_engine) -> None:
     """规则算不出 avoid_patterns / 时长上限，只能由模型补。"""
     db = risk_engine.exercise_db
@@ -325,7 +390,7 @@ def test_state_agent_merges_semantic_constraints(risk_engine) -> None:
 
 
 def test_state_agent_ignores_unknown_patterns(risk_engine) -> None:
-    """模型编一个不存在的动作模式 → 丢弃，不能污染下游过滤。"""
+    """模型编一个不存在的动作模式 → 丢弃，不能污染下游。"""
     db = risk_engine.exercise_db
 
     def fake_enhance(payload):

@@ -109,8 +109,8 @@ def main() -> None:
         leak = planned & set(prof.forbidden_reasons)
         print(
             f"\n  安全：passed={result.report.passed}  违规={len(result.report.violations)}  "
-            f"探针 {result.report.adversarial_blocked}/{result.report.adversarial_probes}  "
-            f"计划∩禁止={len(leak)}"
+            f"审查={result.report.review_mode} 回炉={result.review_rounds}  "
+            f"基线提示={len(result.report.baseline_flags)}  计划∩禁止={len(leak)}"
         )
         if leak:
             problems.append(f"{label}: 禁忌动作泄漏 {leak}")

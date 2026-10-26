@@ -1,42 +1,35 @@
-"""风险条件约束解码（Constrained Decoding over Risk Grammar）。
+"""降级后端的候选采样（Risk Grammar）。
 
-核心命题：把「禁忌动作倾向于不被生成」升级为「禁忌动作不可能被生成」。
+v3 起，这个模块**不再参与主路径**。中间那层「约束解码」被移除了：
+模型拿到全量动作库、自由出计划，安全性由审查 Agent 事后裁决。
+本模块现在只服务一种场景 —— 没有配置模型时的确定性生成：那时没有任何
+Agent 能做判断，只能靠一份可复现的规则采样。
 
-实现分三层，层层兜底：
+保留的能力（仅降级后端）：
+    candidates(phase)   该阶段的候选集：档案禁忌 / 模式禁忌 / 部位定向 / 阶段归属
+    impact_of(id)       动作冲击等级
+    stats()             屏蔽比例，供审计
 
-1. **候选集硬裁剪**（``candidates``）：生成器只能从 ``allowed_ids`` 采样，
-   采样空间里根本不存在禁忌动作。
-2. **Schema 约束**（``slot_schema`` / ``plan_schema``）：下发给支持结构化输出的
-   模型时，``exercise_id`` 的 enum 只包含允许 ID —— 解码阶段即被 mask，
-   模型无法输出 enum 之外的值。
-3. **事后校验**（``validate``）：对任何来源（LLM 幻觉、缓存、外部脚本）的槽位
-   做谓词校验，返回结构化违规码。前两层被绕过时由这层兜住。
+已移除的能力（正是这次改造拆掉的东西）：
+    slot_schema / plan_schema   enum 掩码，让禁忌 ID 在解码期不可能出现
+    validate / bounds           事后谓词校验与处方区间夹紧
 
-三层共用同一份 ``RiskProfile``，避免规则出现第二份真相。
-
-v2 变更：候选集从「按动作类型排序、取前 N 个」改为「按 ``phase`` 字段硬过滤」。
-原实现的 ``PHASE_PREFERRED_TYPES`` 只是把偏好类型排到前面，排在后面的类型
-仍会追加进结果，实际等于没过滤 —— 所以热身段能抽到杠铃弯举。现在每个阶段
-只保留 ``phase`` 字段显式声明属于该阶段的动作，且 schema 的 enum 也按阶段
-收敛，使「阶段不匹配的动作」同样不可能被输出。
+为什么移除后仍然安全：判定权移交给 safety_agent —— 它拿到计划、病历原文与
+基线命中项，由审查模型给出最终结论；判 fail 就把违规清单回灌给生成 Agent
+重写。规则不再是判决者，只是提示者。
 """
 from __future__ import annotations
 
 import random
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from agents.contracts import PHASES, RiskProfile, Slot, Violation
+from agents.contracts import PHASES, RiskProfile
 from agents.focus import (
     FOCUS_EXEMPT_PHASES,
     normalize_workout_type,
     resolve_focus,
 )
-from agents.prescription import (
-    PrescriptionBounds,
-    is_bodyweight,
-    parse_reps,
-    prescription_bounds,
-)
+
 
 GRAMMAR_VERSION = "grammar/2.2.0"
 
@@ -160,34 +153,6 @@ class RiskGrammar:
             rng.shuffle(fallback)
         return strict + fallback if allow_fallback else strict
 
-    def bounds(self, phase: str, exercise_id: int) -> PrescriptionBounds:
-        """该动作在该阶段的合法取值区间。"""
-        meta = self.index.get(int(exercise_id)) or {}
-        return prescription_bounds(phase, meta, self.profile.load_pct_cap)
-
-    def prescription_rules(self) -> List[Dict[str, Any]]:
-        """把各阶段候选归纳成「类型 → 区间」表，供模型参考取值。
-
-        只出现该阶段真实存在的类型，最多十几条，避免逐动作重复下发。
-        """
-        seen: Dict[Tuple[str, str, bool], Dict[str, Any]] = {}
-        for phase in PHASES:
-            for eid in self.phase_allowed_ids(phase):
-                meta = self.index.get(eid) or {}
-                etype = str(meta.get("type") or "Compound")
-                free = is_bodyweight(meta)
-                key = (phase, etype, free)
-                if key in seen:
-                    continue
-                b = prescription_bounds(phase, meta, self.profile.load_pct_cap)
-                seen[key] = {
-                    "phase": phase,
-                    "type": etype,
-                    "bodyweight": free,
-                    **b.to_dict(),
-                }
-        return list(seen.values())
-
     def phase_coverage(self, exclude: Sequence[int] = ()) -> Dict[str, int]:
         """各阶段严格候选数量 —— 用于诊断「某阶段是否被档案掏空」。"""
         return {phase: len(self.candidates(phase, exclude=exclude)) for phase in PHASES}
@@ -195,132 +160,6 @@ class RiskGrammar:
     def impact_of(self, exercise_id: int) -> int:
         meta = self.index.get(int(exercise_id)) or {}
         return int(meta.get("risk_level", 1))
-
-    # ── 谓词校验 ──────────────────────────────────────────────────────────
-    def validate(self, slot: Slot, phase: str = "") -> Optional[Violation]:
-        eid = slot.exercise_id
-        meta = self.index.get(eid)
-        if meta is None:
-            return Violation("UNKNOWN_ID", eid, phase, "ID 不在知识库")
-        if eid not in self._allowed_set:
-            return Violation(
-                "FORBIDDEN_ID", eid, phase,
-                self.profile.forbidden_reasons.get(eid, "命中禁忌谓词"),
-            )
-        impact = int(meta.get("risk_level", 1))
-        if impact > self.profile.impact_ceiling:
-            return Violation("IMPACT_CEILING", eid, phase, f"impact={impact} > {self.profile.impact_ceiling}")
-        for joint in meta.get("involved_joints", []) or []:
-            cap = self.profile.joint_caps.get(str(joint).lower())
-            if cap is not None and impact > cap:
-                return Violation(
-                    "JOINT_CAP", eid, phase,
-                    f"{joint} 上限 {cap}，动作 impact={impact}",
-                )
-        if (
-            slot.load_pct is not None
-            and self.profile.load_pct_cap is not None
-            and slot.load_pct > self.profile.load_pct_cap
-        ):
-            return Violation(
-                "LOAD_PCT", eid, phase,
-                f"load_pct={slot.load_pct} > {self.profile.load_pct_cap}",
-            )
-        # 处方区间校验：模型有取值自由，但只能在区间内取。
-        # 阶段为空时无法确定区间（同一个动作在不同阶段区间不同），跳过。
-        if phase:
-            b = self.bounds(phase, eid)
-            if slot.sets < b.sets_min or slot.sets > b.sets_max:
-                return Violation(
-                    "PRESCRIPTION_RANGE", eid, phase,
-                    f"sets={slot.sets} 超出 [{b.sets_min},{b.sets_max}]",
-                )
-            low, high, unit = parse_reps(slot.reps, default_unit=b.unit)
-            if unit != b.unit or low < b.reps_min or high > b.reps_max:
-                return Violation(
-                    "PRESCRIPTION_RANGE", eid, phase,
-                    f"reps={slot.reps} 超出 [{b.reps_min},{b.reps_max}] {b.unit}",
-                )
-            if slot.load_pct is not None:
-                if b.load_max is None:
-                    return Violation(
-                        "PRESCRIPTION_RANGE", eid, phase,
-                        f"该动作不应标注负荷，却给了 load_pct={slot.load_pct}",
-                    )
-                if slot.load_pct < (b.load_min or 0) or slot.load_pct > b.load_max:
-                    return Violation(
-                        "PRESCRIPTION_RANGE", eid, phase,
-                        f"load_pct={slot.load_pct} 超出 [{b.load_min},{b.load_max}]",
-                    )
-        return None
-
-    def validate_draft_slots(self, slots: Sequence[Tuple[str, Slot]]) -> List[Violation]:
-        out: List[Violation] = []
-        for phase, slot in slots:
-            v = self.validate(slot, phase)
-            if v is not None:
-                out.append(v)
-        return out
-
-    # ── 解码约束：发给模型的结构化输出 schema ─────────────────────────────
-    def phase_allowed_ids(self, phase: str) -> Tuple[int, ...]:
-        """该阶段的可解码 ID 集合。
-
-        严格候选为空时退回「允许集 ∩ 部位范围」—— enum 不能是空数组
-        （schema 非法），而退回的仍然是 ``allowed_ids`` 的子集，
-        禁忌动作依旧不可能出现。
-        """
-        ids = self.candidates(phase)
-        if ids:
-            return tuple(ids)
-        if self.focus_ids is None or phase in FOCUS_EXEMPT_PHASES:
-            return self.allowed_ids
-        scoped = tuple(i for i in self.allowed_ids if i in self.focus_ids)
-        return scoped or self.allowed_ids
-
-    def slot_schema(self, phase: Optional[str] = None) -> Dict[str, Any]:
-        ids = self.phase_allowed_ids(phase) if phase else self.allowed_ids
-        return {
-            "type": "object",
-            "properties": {
-                "exercise_id": {"type": "integer", "enum": list(ids)},
-                "sets": {"type": "integer", "minimum": 1, "maximum": 6},
-                "reps": {"type": "string"},
-                "load_pct": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
-                "impact": {"type": "integer", "minimum": 1, "maximum": 5},
-            },
-            "required": ["exercise_id", "sets", "reps", "impact"],
-            "additionalProperties": False,
-        }
-
-    def plan_schema(
-        self,
-        phase_limits: Optional[Dict[str, Tuple[int, int]]] = None,
-    ) -> Dict[str, Any]:
-        """整份计划的解码 schema。
-
-        每个阶段的 ``exercise_id`` enum 各自收敛到该阶段的候选集 —— 模型不仅
-        无法输出禁忌动作，也无法把「热身动作」塞进主项段。
-        """
-        props: Dict[str, Any] = {}
-        for phase in PHASES:
-            lo, hi = (phase_limits or {}).get(phase, (1, 6))
-            props[phase] = {
-                "type": "array",
-                "items": self.slot_schema(phase=phase),
-                "minItems": lo,
-                "maxItems": hi,
-            }
-        return {
-            "name": "workout_plan_draft",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": props,
-                "required": list(PHASES),
-                "additionalProperties": False,
-            },
-        }
 
     # ── 统计 ──────────────────────────────────────────────────────────────
     def stats(self) -> Dict[str, Any]:

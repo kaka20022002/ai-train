@@ -46,7 +46,7 @@ from program_generator import ProgramGeneratorService
 from plan_program_sync import sync_plan_after_generation
 from history_analyzer import analyze_history
 
-# 三 Agent 计划生成管线（状态分析 → 计划生成 → 安全评估 + 风险条件约束解码）
+# 三 Agent 计划生成管线（状态分析给基线意见 → 全库自由生成 → 独立会审 → 回灌重写）
 from agents import (
     PlanAgent,
     SafetyEvalAgent,
@@ -304,15 +304,26 @@ class SafetyViolationResponse(BaseModel):
 
 
 class SafetySummaryResponse(BaseModel):
-    """Safety conclusion returned alongside every generated plan."""
+    """Safety conclusion returned alongside every generated plan.
+
+    v3 起结论由审查 Agent 给出（``review_mode=agent``）；没有配模型时退回
+    基线谓词判定，并在 ``review_mode`` 里如实标注，避免把降级当成审查通过。
+    """
     passed: bool
     checked_slots: int
-    masked_count: int = Field(0, description="禁忌动作在候选池里被屏蔽的数量")
-    adversarial_probes: int = Field(0, description="对抗探针注入次数")
-    adversarial_blocked: int = Field(0, description="探测动作被拦下的次数")
+    review_mode: str = Field(
+        "baseline",
+        description="agent=审查 Agent 裁决 / baseline=基线谓词（未配模型）/ "
+                    "baseline_fallback=审查 Agent 调用失败后退回基线",
+    )
+    review_rounds: int = Field(0, description="被审查打回后重写的轮次")
+    baseline_flags: List[SafetyViolationResponse] = Field(
+        default_factory=list,
+        description="基线谓词的命中项 —— 证据，不是判决；审查 Agent 可以否决",
+    )
     profile_hash: str = ""
-    grammar_version: str = ""
-    rejected_ids: List[int] = Field(default_factory=list, description="生成阶段被白名单挡回的 ID")
+    grammar_version: str = Field("", description="本次生成所用的动作目录版本")
+    rejected_ids: List[int] = Field(default_factory=list, description="知识库中不存在的 ID")
     violations: List[SafetyViolationResponse] = Field(default_factory=list)
     # ── 三个 Agent 的 LLM 审查痕迹（未启用 LLM 时分别为 skipped / deterministic）──
     llm_verdict: str = Field(
@@ -336,7 +347,7 @@ class SafetySummaryResponse(BaseModel):
     progression_note: str = Field("", description="进阶/退阶方向建议")
     capacity_note: str = Field("", description="当前训练容量判断")
     adjusted_slots: int = Field(
-        0, description="参数被夹进合法区间的槽位数（模型越界程度）"
+        0, description="模型未给参数、由处方默认值补全的槽位数（不再是越界夹紧计数）"
     )
 
 
@@ -517,8 +528,8 @@ if USE_REAL_LLM:
     except Exception as e:  # noqa: BLE001
         AGENT_BRIDGES = None
         print(
-            "⚠️  Agent LLM bridges unavailable — agents fall back to rule-only "
-            f"backends: {e}"
+            "⚠️  Agent LLM bridges unavailable — agents fall back to baseline-only "
+            f"backends (no agent review): {e}"
         )
 else:
     # 常见误配：key 填了但忘了打开开关。这里主动提示，省得对着
@@ -526,7 +537,7 @@ else:
     if os.getenv("OPENAI_API_KEY") or os.getenv("MINIMAX_API_KEY"):
         print(
             "ℹ️  Detected an API key but USE_REAL_LLM=false — the three agents "
-            "are running on rule-only backends. Set USE_REAL_LLM=true in .env "
+            "are running on baseline backends, i.e. no agent review. Set USE_REAL_LLM=true in .env "
             "to switch them to the LLM backends."
         )
 
@@ -610,9 +621,9 @@ async def generate_plan(
     engine: str = Query(
         "agents",
         description=(
-            "计划生成引擎。agents（默认）= 三 Agent 管线，状态分析/计划生成/安全评估"
-            "彼此独立，并对候选动作施加风险条件约束解码；legacy = 旧的单步 mock 生成器，"
-            "仅用于对照实验与回退。"
+            "计划生成引擎。agents（默认）= 三 Agent 管线：状态分析给出基线意见、"
+            "生成 Agent 从全量动作库自由出计划、审查 Agent 独立复核（判 fail 则回灌"
+            "重写）。legacy = 旧的单步 mock 生成器，仅用于对照实验与回退。"
         ),
     ),
     db: Session = Depends(get_db),
@@ -724,9 +735,10 @@ async def generate_plan(
             )
             print(
                 f"   \U0001f9e9 Agents pipeline: {agent_result.draft.slot_count()} slots | "
-                f"allowed={len(agent_result.profile.allowed_ids)} "
-                f"forbidden={len(agent_result.profile.forbidden_reasons)} | "
-                f"safety_passed={agent_result.report.passed} | "
+                f"baseline_forbidden={len(agent_result.profile.forbidden_reasons)} | "
+                f"safety_passed={agent_result.report.passed} "
+                f"(review={agent_result.report.review_mode}, "
+                f"rounds={agent_result.review_rounds}) | "
                 f"generator={plan_export['generator_version']} | "
                 f"llm=[state={agent_result.profile.llm_status or 'skipped'} "
                 f"plan={agent_result.draft.generator} "
@@ -827,9 +839,12 @@ async def generate_plan(
                 SafetySummaryResponse(
                     passed=agent_result.report.passed,
                     checked_slots=agent_result.report.checked_slots,
-                    masked_count=agent_result.report.masked_count,
-                    adversarial_probes=agent_result.report.adversarial_probes,
-                    adversarial_blocked=agent_result.report.adversarial_blocked,
+                    review_mode=agent_result.report.review_mode,
+                    review_rounds=agent_result.review_rounds,
+                    baseline_flags=[
+                        SafetyViolationResponse(**v.to_dict())
+                        for v in agent_result.report.baseline_flags
+                    ],
                     profile_hash=agent_result.profile.profile_hash,
                     grammar_version=agent_result.draft.grammar_version,
                     rejected_ids=list(agent_result.draft.rejected_ids),

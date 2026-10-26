@@ -8,10 +8,10 @@ load_pct, impact}``，动作名称、休息时长、目标肌群这些「给人�
 产物结构与 ``PlanGeneratorMock.export_plan_as_json`` 完全对齐，
 因此可以直接复用现有的响应模型、落库逻辑与前端类型。
 
-v2 变更：
-    - 补 ``name_zh``（后端权威中文名，前端映射表之外的第二层保障）
-    - 休息时长按阶段与动作性质区分，不再一律 60 秒
-    - 总时长按「计时动作算秒、次数动作算次数×3 秒」估算，不再统一按 45 秒
+v3 变更：
+    - 安全说明改写：结论由审查 Agent 给出，基线命中项作为「被否决的提示」
+      或「降级判定依据」分别措辞，不再宣称「候选池已屏蔽 N 个动作」
+    - generator_version 里带的是目录版本（catalog/x.y.z），不再是文法版本
 """
 from __future__ import annotations
 
@@ -153,46 +153,63 @@ def build_safety_notes(
     report: SafetyReport,
     draft: Optional[PlanDraft] = None,
 ) -> List[str]:
-    """安全说明：结论先行，再给可核查的数字。"""
+    """安全说明：先说结论由谁给出，再给可核查的数字。"""
     notes: List[str] = []
+    mode = report.review_mode
 
-    if report.passed:
+    if mode == "agent":
+        if report.passed:
+            notes.append(
+                f"✅ 审查 Agent 复核通过：{report.checked_slots} 个动作未见安全问题"
+                f"（档案 {profile.profile_hash}）"
+            )
+        else:
+            codes = sorted({v.code for v in report.violations})
+            notes.append(f"⚠️ 审查 Agent 判定不通过：{'、'.join(codes)}")
+        if report.llm_rationale:
+            notes.append(f"🧑‍⚖️ 审查意见：{report.llm_rationale}")
+    elif mode == "baseline_fallback":
         notes.append(
-            f"✅ 计划已通过安全校验：{report.checked_slots} 个动作全部合规"
-            f"（约束文法 {profile.profile_hash}）"
+            "⚠️ 审查 Agent 调用失败，本次结论退回基线谓词"
+            f"（{'未发现命中项' if report.passed else '存在命中项'}）"
         )
     else:
-        codes = sorted({v.code for v in report.violations})
-        notes.append(f"⚠️ 安全校验未通过：{'、'.join(codes)}")
-
-    if report.masked_count:
-        notes.append(f"🚫 候选池已屏蔽 {report.masked_count} 个禁忌动作，生成阶段无法选中")
-
-    if report.adversarial_probes:
         notes.append(
-            f"🛡️ 对抗探针：主动注入 {report.adversarial_probes} 个禁忌动作，"
-            f"拦截 {report.adversarial_blocked}/{report.adversarial_probes}"
+            "ℹ️ 本次未经 Agent 审查（未配置模型），结论由基线谓词给出"
+            f"（{'未发现命中项' if report.passed else '存在命中项'}）"
         )
+
+    if report.baseline_flags:
+        codes = sorted({v.code for v in report.baseline_flags})
+        if mode == "agent" and report.passed:
+            notes.append(
+                f"🧾 基线谓词提示 {len(report.baseline_flags)} 项（{'、'.join(codes)}），"
+                "审查 Agent 判定不适用于本次计划"
+            )
+        else:
+            notes.append(
+                f"🧾 基线谓词命中 {len(report.baseline_flags)} 项：{'、'.join(codes)}"
+            )
 
     if profile.joint_caps:
         caps = "、".join(f"{k}≤{v}" for k, v in sorted(profile.joint_caps.items()))
-        notes.append(f"📐 关节冲击上限：{caps}")
+        notes.append(f"📐 关节冲击上限（基线建议）：{caps}")
 
     if profile.load_pct_cap is not None:
-        notes.append(f"📉 训练强度上限：{profile.load_pct_cap}%（由历史反馈动态收紧）")
+        notes.append(f"📉 训练强度上限（基线建议）：{profile.load_pct_cap}%")
 
     if profile.avoid_patterns:
-        notes.append(f"⛔ 已回避动作模式：{'、'.join(profile.avoid_patterns)}")
+        notes.append(f"⛔ 建议回避的动作模式：{'、'.join(profile.avoid_patterns)}")
 
     if profile.session_cap_minutes:
         notes.append(f"⏱️ 单次训练时长上限：{profile.session_cap_minutes} 分钟")
 
     if draft is not None and draft.rejected_ids:
-        notes.append(f"🔍 生成阶段另有 {len(draft.rejected_ids)} 个动作被白名单挡回")
+        notes.append(f"🔍 另有 {len(draft.rejected_ids)} 个动作 ID 不在知识库中，已丢弃")
 
     if draft is not None and draft.adjusted_slots:
         notes.append(
-            f"🔧 另有 {draft.adjusted_slots} 个动作的组次负荷被夹进合法区间"
+            f"🧩 有 {draft.adjusted_slots} 个动作模型未给参数，已按处方默认值补全"
         )
 
     return notes

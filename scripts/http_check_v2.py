@@ -80,7 +80,8 @@ def main() -> None:
     s = data.get("safety") or {}
     print(
         f"  安全: passed={s.get('passed')} 检查={s.get('checked_slots')} "
-        f"屏蔽={s.get('masked_count')} 探针={s.get('adversarial_blocked')}/{s.get('adversarial_probes')}"
+        f"审查={s.get('review_mode')} 回炉={s.get('review_rounds')} "
+        f"基线提示={len(s.get('baseline_flags') or [])}"
     )
     print(f"  审计: {[e['stage'] for e in (data.get('audit') or [])]}")
     for note in data["safety_notes"]:

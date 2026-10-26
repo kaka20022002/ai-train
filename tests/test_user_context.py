@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from agents.grammar import build_exercise_index, compile_risk_grammar
+from agents.catalog import ExerciseCatalog
 from agents.plan_agent import PlanAgent
 from agents.state_agent import StateRiskAgent
 
@@ -138,8 +138,8 @@ def test_plan_payload_carries_goal_and_request(db) -> None:
     profile = StateRiskAgent(db).analyze(
         ctx, None, workout_type="lower_body", query="想练腿但只有半小时"
     )
-    grammar = compile_risk_grammar(profile, build_exercise_index(db))
-    payload = PlanAgent().build_request_payload(profile, grammar, "lower_body")
+    catalog = ExerciseCatalog(db)
+    payload = PlanAgent().build_request_payload(profile, catalog, "lower_body")
 
     assert payload["fitness_goal"] == "strength"
     assert payload["training_frequency"] == 2
@@ -157,14 +157,15 @@ def test_candidate_rows_flag_liked_and_disliked(db) -> None:
         },
         None,
     )
-    grammar = compile_risk_grammar(profile, build_exercise_index(db))
-    payload = PlanAgent().build_request_payload(profile, grammar, "full_body")
-    rows = [row for slots in payload["phase_candidates"].values() for row in slots]
+    catalog = ExerciseCatalog(db)
+    payload = PlanAgent().build_request_payload(profile, catalog, "full_body")
+    rows = payload["exercise_catalog"]
 
     assert any(row.get("liked") for row in rows), "hinge 类动作应被标 liked"
     assert any(row.get("disliked") for row in rows), "core 类动作应被标 disliked"
-    # 标记只是标签，不改变候选池大小
-    assert len(rows) == sum(len(grammar.phase_allowed_ids(p)) for p in payload["phase_candidates"])
+    # 标记只是标签，不改变候选池大小 —— 全库都在（含基线禁忌动作）
+    assert len(rows) == len(catalog)
+    assert set(profile.forbidden_reasons) <= {row["exercise_id"] for row in rows}
 
 
 def test_query_alone_triggers_state_llm(db) -> None:
@@ -287,7 +288,7 @@ def test_full_body_is_unrestricted(db) -> None:
 
 
 def test_focus_cannot_bypass_forbidden(db) -> None:
-    """部位定向只能收窄范围，永不能把禁忌动作带回来。"""
+    """部位定向只能收窄范围，永不能把禁忌动作带回来（降级后端的候选采样）。"""
     from agents.grammar import build_exercise_index, compile_risk_grammar
 
     history = [{"location": "knee", "condition": "meniscus_tear", "severity": "high"}]
@@ -297,7 +298,8 @@ def test_focus_cannot_bypass_forbidden(db) -> None:
     grammar = compile_risk_grammar(profile, build_exercise_index(db))
     forbidden = set(profile.forbidden_reasons)
     for phase in ("warm_up", "activation", "main_lifts", "accessories", "cool_down"):
-        assert not (set(grammar.phase_allowed_ids(phase)) & forbidden)
+        pool = set(grammar.candidates(phase, allow_fallback=True))
+        assert not (pool & forbidden)
 
 
 def test_disliked_exercise_is_dropped_when_pool_is_large_enough(db) -> None:

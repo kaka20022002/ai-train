@@ -75,8 +75,8 @@ python main.py
 | Agent | prompt 版本 | 职责 | 接不上 LLM 时 |
 | --- | --- | --- | --- |
 | `state_risk` | `state_risk/2.1.0` | 从病历自由文本抽取规则算不出的约束（模式禁忌、时长上限、容量判断） | 退回纯规则阈值表 |
-| `plan_gen` | `plan_gen/2.1.0` | **决定**选哪些动作、顺序、组数、次数、负荷、休息 | 退回确定性采样 + 处方推荐值 |
-| `safety_eval` | `safety_eval/2.0.0` | 独立审查，输出枚举违规码（含剂量合理性） | 退回纯谓词校验 |
+| `plan_gen` | `plan_gen/3.0.0` | **全权决定**从全库选哪些动作、放哪个阶段、顺序、组次负荷、休息；被打回时自己改 | 退回确定性采样 + 处方推荐值 |
+| `safety_eval` | `safety_eval/3.0.0` | **最终裁决**：确认或否决基线提示，输出枚举违规码（含剂量合理性） | 退回基线谓词 |
 
 ### 模型看到的输入是完整档案，不是摘要
 
@@ -137,34 +137,45 @@ python main.py
 俯身划船、反向划船），原因是原来的下肢主项全依赖杠铃与器械架 ——
 「膝伤 + 只有哑铃」的用户在练腿日会一个主项都选不出来。
 
-### 权力结构：模型决策，规则兜底
+### 权力结构：模型全权决策，Rule 只做会审依据（v3）
 
-模块的分工不是「规则裁剪完让模型从剩下的里挑」，而是「模型自由决定，越界部分
-由规则夹紧」。区别在模型的实际自由度：
+2026-10 的这次改造**拆掉了中间那层规则**。原先是「规则裁剪候选 → 模型在剩下的
+里挑 → 规则夹紧参数 → 规则判合规 ∧ 模型判合规」，模型实际上没有任何决定权。
+现在的分工是：
 
-| 维度 | 规则 | 模型 |
+| 维度 | 谁决定 |
+| --- | --- |
+| 能选哪些动作 | **模型**（全库 77 条，无候选裁剪、无 enum 掩码） |
+| 放哪个阶段 | **模型**（`phases` 只是建议，放错了由审查判 `SEQUENCE`） |
+| 组数 / 次数 / 负荷 / 休息 | **模型**（原样落库，不再夹紧） |
+| 训练是否安全 | **审查 Agent**（它的 verdict 就是最终结论） |
+| 计划被打回后怎么改 | **生成 Agent 自己改**（拿到违规清单重写，不是规则补位） |
+
+规则只剩两处身位：
+
+1. **基线证据**。`state_risk` 仍用阈值表算出禁忌清单、关节上限、冲击上限，
+   但这份清单以 `baseline` 的名义随请求下发，是「另一个 Agent 的意见」而
+   不是硬约束。模型可以判定某条对本次训练不适用 —— 代价是要在接受会审时
+   说服审查员。
+2. **降级后端**。没配 key 时没有任何 Agent 能做判断，此时才启用
+   `RiskGrammar` 的候选采样 + 处方推荐值，并在响应里明确标注
+   `review_mode="baseline"`（本次未经 Agent 审查）。
+
+审查的三种结论（`safety.review_mode`）：
+
+| review_mode | 含义 | `passed` 由谁给 |
 | --- | --- | --- |
-| 哪些动作被禁止 | **独占**（阈值表 + 语义追加） | 只能追加，不能放宽 |
-| 组数 / 次数 / 负荷 | 给**区间**（`prescription_bounds`） | 在区间内**自行取值** |
-| 动作顺序 / 组合 | 只保证阶段归属 | **独占** |
-| 单动作要点 / 组间休息 | 只做默认值 | **独占** |
-| 验收判定 | 谓词校验（不可绕过） | 合取，只能加严 |
+| `agent` | 审查 Agent 正常裁决 | 模型 verdict |
+| `baseline_fallback` | 审查 Agent 超时 / 坏 JSON | 基线谓词（不放行） |
+| `baseline` | 没配模型 | 基线谓词 |
 
-三条不会被模型突破的线：
+会审回路：`safety_eval` 判 fail → 违规清单 + 上一版计划回灌给 `plan_gen`
+→ 重写 → 再审，最多 2 轮（`max_review`）。审计链里对应 `review_round`
+记录，`safety.review_rounds` 是实际轮次。
 
-1. **合取验收**：`passed = rule_passed AND llm_passed`。LLM 通道超时或返回坏
-   JSON 时，判定退回规则结论而不是放行。
-2. **参数夹紧**：模型给的组次负荷必须落在 `prescription_bounds()`
-   推导出的区间内（按动作类型 × 阶段），越界由 `PrescriptionBounds.clamp`
-   夹到边界并计入 `adjusted_slots`；ID 或阶段越界则直接进 `rejected_ids`。
-3. **约束单向**：`state_risk` 的追加类字段只能让约束更紧。但
-   `avoid_patterns` / `session_cap_minutes` 是规则没有的维度 —— 这正是
-   「让模型做规则做不到的事」，而不是让它把阈值表重算一遍。
-
-响应里 `safety.llm_verdict` / `safety.state_llm_status` / `generator_version`
-会显示三个 Agent 的实际后端，`safety.avoid_patterns` / `session_cap_minutes` /
-`adjusted_slots` 展示语义约束与越界程度，`audit` 数组逐条记录各自用的 prompt
-版本，可直接用于对照实验（Mock vs LLM）。
+响应里 `safety.review_mode` / `llm_verdict` / `review_rounds` / `baseline_flags`
+显示判定归属与分歧，`audit` 数组逐条记录三个 Agent 的输入摘要与输出结构，
+可直接用于对照实验（降级 vs LLM、不同 prompt 版本）。
 
 ### 使用 OpenAI 模型（示例 GPT-4.1）
 

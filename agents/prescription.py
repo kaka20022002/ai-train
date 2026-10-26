@@ -182,17 +182,15 @@ def prescribe_for_phase(
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 处方区间 —— 让模型在合法范围内真正决定「做多少」
+# 参考剂量区间 —— 给模型一个「常见范围」的锚点
 # ══════════════════════════════════════════════════════════════════════
 #
-# ``prescribe`` 给的是「推荐值」，所有人一样；``prescription_bounds`` 给的是
-# **允许区间**，模型在区间内自行取值。两者不冲突：
+# ``prescribe`` 给的是推荐值（确定性后端用），``prescription_bounds`` 给的是
+# **参考区间**（下发给模型做剂量决策的锚点）。
 #
-#   - 模型可用 → 区间（模型决定 sets / reps / load，体现个体化与当日状态）
-#   - 模型不可用 → ``prescribe`` 的推荐值（确定性兜底，行为与旧版一致）
-#
-# 越界的取值不会被静默丢弃，而是由 ``clamp`` 夹到边界，并把「是否夹过」
-# 记进审计 —— 夹紧量本身就是「模型是否守规矩」的指标。
+# v3 起不再有 ``clamp``：模型超出区间不会被夹回去。区间是「常见做法」，
+# 不是「合法边界」—— 合不合理由审查 Agent 判，判 fail 就打回重写。
+# 少了这一层，模型才真的拥有处方决策权。
 
 # 动作类型 × 阶段 → (sets_min, sets_max, reps_min, reps_max, load_min, load_max)
 # reps 的单位由 ``timed`` 决定：True 为秒，False 为次。
@@ -245,56 +243,6 @@ class PrescriptionBounds:
     @property
     def unit(self) -> str:
         return "秒" if self.timed else "次"
-
-    def clamp(
-        self, sets: Any, reps: str, load_pct: Any
-    ) -> Tuple[int, str, Optional[int], bool]:
-        """把模型给的取值夹进区间。
-
-        返回 ``(sets, reps, load_pct, clamped)``；``clamped=True`` 表示至少
-        有一项越界被夹紧，用于统计「模型自由度用到哪去了」。
-        """
-        clamped = False
-
-        try:
-            s = int(sets)
-        except (TypeError, ValueError):
-            s = self.sets_min
-            clamped = True
-        if s < self.sets_min or s > self.sets_max:
-            s = min(max(s, self.sets_min), self.sets_max)
-            clamped = True
-
-        low, high, unit = parse_reps(reps, default_unit=self.unit)
-        if unit != self.unit:
-            # 单位不符（把秒写成了次）时以区间为准重建
-            low = high = self.reps_min
-            clamped = True
-        new_low = min(max(low, self.reps_min), self.reps_max)
-        new_high = min(max(high, self.reps_min), self.reps_max)
-        if new_high < new_low:
-            new_high = new_low
-        if (new_low, new_high) != (low, high):
-            clamped = True
-
-        load: Optional[int] = None
-        if self.load_max is None:
-            # 该类动作不允许标注负荷，模型给了也丢掉
-            if load_pct is not None:
-                clamped = True
-        else:
-            try:
-                value = int(load_pct) if load_pct is not None else self.load_min
-            except (TypeError, ValueError):
-                value = self.load_min or 0
-                clamped = True
-            assert self.load_min is not None
-            if value < self.load_min or value > (self.load_max or value):
-                value = min(max(value, self.load_min), self.load_max)
-                clamped = True
-            load = value
-
-        return s, format_reps(new_low, new_high, self.unit), load, clamped
 
     def to_dict(self) -> Dict[str, Any]:
         return {

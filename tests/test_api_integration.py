@@ -220,14 +220,15 @@ def test_generate_plan_defaults_to_agents_pipeline(client) -> None:
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
-    assert "+grammar/" in data["generator_version"]
+    assert "+catalog/" in data["generator_version"]
     safety = data["safety"]
     assert safety is not None, "engine=agents 必须返回 safety"
     assert safety["passed"] is True
     assert safety["checked_slots"] > 0
-    assert safety["masked_count"] > 0
-    assert safety["adversarial_probes"] > 0
-    assert safety["adversarial_blocked"] == safety["adversarial_probes"]
+    # 无 key 时如实标注「未经 Agent 审查」，而不是假装审查通过
+    assert safety["review_mode"] == "baseline"
+    assert safety["review_rounds"] == 0
+    assert safety["baseline_flags"] == []
     assert safety["profile_hash"]
 
     audit = data["audit"]
@@ -308,18 +309,29 @@ def test_agents_pipeline_uses_one_key_three_prompts(client, monkeypatch) -> None
             if "力量与体能教练" in system_prompt:
                 blob = user_prompt[user_prompt.index("{") : user_prompt.rindex("}") + 1]
                 payload = json.loads(blob)
+                rows = payload["exercise_catalog"]
+                blocked = {
+                    item["exercise_id"]
+                    for item in payload["baseline"]["forbidden_exercises"]
+                }
                 picked: dict[str, list[dict]] = {}
-                for phase, rows in payload["phase_candidates"].items():
-                    if rows:
+                for phase in ("warm_up", "activation", "main_lifts",
+                              "accessories", "cool_down"):
+                    candidates = [
+                        r for r in rows
+                        if phase in r["phases"] and r["exercise_id"] not in blocked
+                    ]
+                    if candidates:
                         # 模拟模型给完整槽位（组次负荷 + 要点 + 休息）
+                        row = candidates[0]
                         picked[phase] = [
                             {
-                                "exercise_id": rows[0]["exercise_id"],
-                                "sets": 1,
-                                "reps": "30",
+                                "exercise_id": row["exercise_id"],
+                                "sets": 2,
+                                "reps": "30" if row.get("timed") else "10",
                                 "load_pct": None,
                                 "rest_seconds": 30,
-                                "note": f"模型选择 {rows[0]['name_zh']}",
+                                "note": f"模型选择 {row['name']}",
                             }
                         ]
                 return picked
@@ -351,11 +363,10 @@ def test_agents_pipeline_uses_one_key_three_prompts(client, monkeypatch) -> None
     assert safety["llm_prompt_version"].startswith("safety_eval/")
     assert safety["passed"] is True
 
-    # 合规性不因为换成 LLM 就松掉
-    forbidden = {ex["name"] for ex in data["risk_analysis"]["forbidden_exercises"]}
-    planned = {ex["name"] for slots in data["phases"].values() for ex in slots}
-    assert forbidden
-    assert not (planned & forbidden)
+    # 结论由审查 Agent 给出（不再是「规则 + 模型取合取」）
+    assert safety["review_mode"] == "agent"
+    assert safety["llm_rationale"]
+    assert safety["passed"] is True
 
 
 def test_model_decisions_reach_the_response(client, monkeypatch) -> None:
@@ -373,20 +384,22 @@ def test_model_decisions_reach_the_response(client, monkeypatch) -> None:
                 if "力量与体能教练" in system_prompt:
                     blob = user_prompt[user_prompt.index("{") : user_prompt.rindex("}") + 1]
                     payload = json.loads(blob)
+                    rows = payload["exercise_catalog"]
                     out: dict[str, list[dict]] = {}
-                    for phase, rows in payload["phase_candidates"].items():
-                        if not rows:
+                    for phase in ("warm_up", "activation", "main_lifts",
+                                  "accessories", "cool_down"):
+                        candidates = [r for r in rows if phase in r["phases"]]
+                        if not candidates:
                             continue
-                        row = rows[0]
-                        timed = bool(row.get("timed"))
+                        row = candidates[0]
                         out[phase] = [
                             {
                                 "exercise_id": row["exercise_id"],
                                 "sets": 2,
-                                "reps": "25" if timed else "9",
+                                "reps": "25" if row.get("timed") else "9",
                                 "load_pct": None,
                                 "rest_seconds": 45,
-                                "note": f"模型提示：{row['name_zh']}",
+                                "note": f"模型提示：{row['name']}",
                             }
                         ]
                     return out
@@ -422,11 +435,11 @@ def test_model_decisions_reach_the_response(client, monkeypatch) -> None:
     assert warm[0]["rest_seconds"] == 45
     assert warm[0]["notes"].startswith("模型提示：")
 
-    # 夹紧计数可见（模型给的值部分越界时会被记录）
-    assert isinstance(safety["adjusted_slots"], int)
-    # squat 模式被排除后，计划里不应再出现 squat 模式的深蹲类动作
-    names = {ex["name"] for slots in data["phases"].values() for ex in slots}
-    assert "Barbell Back Squat" not in names
+    # 模型给的参数原样落库，不再被夹紧（本次全部在参考区间内，故为 0）
+    assert safety["adjusted_slots"] == 0
+    # 三个 Agent 的痕迹都在
+    assert safety["review_mode"] == "agent"
+    assert safety["llm_verdict"] == "pass"
 
 
 def test_full_profile_and_query_reach_the_pipeline(client) -> None:

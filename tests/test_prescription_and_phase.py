@@ -118,12 +118,18 @@ def test_generated_phases_respect_their_type_contract(exercise_db, index) -> Non
             assert etype in allowed, f"{phase} 出现 {index[slot.exercise_id]['name']} ({etype})"
 
 
-def test_phase_mismatched_id_rejected_from_llm_output(exercise_db, index) -> None:
-    """LLM 把拉伸动作塞进主项段 —— ID 合法也要挡回。"""
+def test_phase_mismatch_is_left_to_the_reviewer(exercise_db, index) -> None:
+    """v3 起解析层不再挡「阶段错配」，改由审查 Agent 判 SEQUENCE。
+
+    这里只锁「模型放进去的东西原样保留」—— 判定权在 safety_agent，
+    对应测试见 test_agent_llm.py::test_review_rejects_phase_mismatch。
+    """
+    from agents.catalog import ExerciseCatalog
+
     profile = run_pipeline(exercise_db, KNEE_HIGH).profile
-    grammar = compile_risk_grammar(profile, index)
+    catalog = ExerciseCatalog(exercise_db)
     stretch_id = next(
-        eid for eid in profile.allowed_ids if index[eid]["type"] == "Stretch"
+        row["exercise_id"] for row in catalog.rows() if row["type"] == "Stretch"
     )
 
     def rogue(payload, schema):
@@ -133,9 +139,9 @@ def test_phase_mismatched_id_rejected_from_llm_output(exercise_db, index) -> Non
             ]
         }
 
-    draft = PlanAgent(llm_plan_fn=rogue).generate(profile, grammar, "full_body")
-    assert stretch_id in draft.rejected_ids
-    assert all(s.exercise_id != stretch_id for s in draft.phases["main_lifts"])
+    draft = PlanAgent(llm_plan_fn=rogue).generate(profile, catalog, "full_body")
+    assert [s.exercise_id for s in draft.phases["main_lifts"]] == [stretch_id]
+    assert draft.rejected_ids == ()
 
 
 # ── 处方推导 ──────────────────────────────────────────────────────────────

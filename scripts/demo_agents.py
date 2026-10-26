@@ -64,10 +64,11 @@ L.append("【Stage 3】安全评估 Agent 输出")
 L.append("  通过         : %s" % ("是 ✅" if rep.passed else "否 ❌"))
 L.append("  校验槽位     : %d" % rep.checked_slots)
 L.append("  违规         : %d 条" % len(rep.violations))
-L.append("  候选池屏蔽   : %d 个动作" % rep.masked_count)
-L.append("  对抗探针     : 注入 %d 个禁忌动作，拦下 %d 个"
-         % (rep.adversarial_probes, rep.adversarial_blocked))
-L.append("  修复回路     : %s（%d 轮）" % ("触发" if res.repaired else "未触发", res.repair_rounds))
+L.append("  判定者       : %s" % {"agent": "审查 Agent", "baseline": "基线谓词（未接模型）",
+                                  "baseline_fallback": "基线谓词（审查调用失败）"}.get(rep.review_mode, rep.review_mode))
+L.append("  模型结论     : %s" % rep.llm_verdict)
+L.append("  基线提示     : %d 项（证据，非判决）" % len(rep.baseline_flags))
+L.append("  会审回炉     : %d 轮" % res.review_rounds)
 
 L.append("")
 L.append("【交叉验证】计划里出现的 ID 与禁止集求交集：")

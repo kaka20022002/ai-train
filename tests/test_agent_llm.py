@@ -1,15 +1,15 @@
 """三 Agent 共用同一个 LLM 客户端、各用一份 prompt —— 行为回归测试。
 
 这套测试锁的不是「模型答得好不好」（那要靠真实 API 的评测集），
-而是**无论模型答什么，约束都不会被放松**：
+而是**判定权归属与故障语义**：
 
     1. 三个 Agent 各自拿到不同的 system prompt（职责隔离）
     2. 状态分析 Agent 只能追加约束，不能删除或放宽规则算出的约束
-    3. 安全评估 Agent 与规则判定取合取：它能加严，不能放宽
-    4. 任一 LLM 通道故障时，管线退回规则后端而不是放行
-    5. 生成 Agent 的越界 ID 在解析处被挡回
+    3. 审查 Agent 拥有最终判定权：它可以确认、也可以否决基线提示
+    4. 任一 LLM 通道故障时，退回基线结论而不是静默放行
+    5. 生成 Agent 只有「对不上知识库」的 ID 会被清洗，其余原样保留
 
-只要这几条成立，换 provider、换模型、改 prompt 都不会动摇安全命题。
+只要这几条成立，换 provider、换模型、改 prompt 都不会让责任边界漂移。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from agents.grammar import build_exercise_index, compile_risk_grammar
+from agents.catalog import ExerciseCatalog
 from agents.llm_bridge import AgentBridges, build_bridges
 from agents.pipeline import run_pipeline
 from agents.plan_agent import PlanAgent
@@ -224,19 +224,16 @@ def test_state_agent_error_falls_back_to_rules(exercise_db, rule_profile) -> Non
     assert fallback.forbidden_reasons == rule_profile.forbidden_reasons
 
 
-# ── 3. 安全评估：合取，只能加严 ─────────────────────────────────────────────
-def _grammar(exercise_db, profile):
-    return compile_risk_grammar(profile, build_exercise_index(exercise_db))
+# ── 3. 审查 Agent：判定权在它手上 ───────────────────────────────────────────
+def _catalog(exercise_db):
+    return ExerciseCatalog(exercise_db)
 
 
-def test_safety_llm_fail_blocks_rule_pass(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
-    clean = run_pipeline(
-        exercise_db, KNEE_HIGH, PAIN_FEEDBACK
-    )  # 规则后端生成，天然合规
+def test_safety_llm_fail_blocks_plan(exercise_db, rule_profile) -> None:
+    catalog = _catalog(exercise_db)
+    clean = run_pipeline(exercise_db, KNEE_HIGH, PAIN_FEEDBACK)  # 降级后端生成，天然合规
     assert clean.report.passed
 
-    draft = clean.draft
     judge = lambda payload: {
         "verdict": "fail",
         "violations": [
@@ -249,26 +246,37 @@ def test_safety_llm_fail_blocks_rule_pass(exercise_db, rule_profile) -> None:
         ],
         "rationale": "阶段安排不合理",
     }
-    report = SafetyEvalAgent(llm_judge_fn=judge).evaluate(draft, rule_profile, grammar)
+    report = SafetyEvalAgent(llm_judge_fn=judge).evaluate(
+        clean.draft, rule_profile, catalog
+    )
 
     assert report.llm_verdict == "fail"
-    assert report.passed is False          # 规则 pass，但合取后整体 fail
-    assert report.llm_disagreed is True
+    assert report.passed is False
+    assert report.review_mode == "agent"
     assert any(v.code == "SEQUENCE" for v in report.violations)
+    # 审查意见要能原样回灌给生成端
+    payload = SafetyEvalAgent(llm_judge_fn=judge).build_judge_payload(
+        clean.draft, rule_profile, catalog
+    )
+    assert "baseline_flags" in payload
+    assert payload["user_profile"]["medical_history"], "审查要看得到病历原文"
 
 
-def test_safety_llm_pass_cannot_override_rule_fail(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
+def test_reviewer_may_overrule_baseline_flags(exercise_db, rule_profile) -> None:
+    """基线说「这个动作有风险」，审查员可以说「对本次训练不成立」。
+
+    这是 v3 与 v2 最大的区别：v2 里规则 fail 就永远 fail，模型无权推翻。
+    """
+    catalog = _catalog(exercise_db)
     forbidden_id = sorted(rule_profile.forbidden_reasons)[0]
 
-    # 手工注入一个禁忌槽位 —— 模拟「生成 Agent 被替换成恶意实现」
     draft = PlanDraft(
         plan_id="draft_injected",
         user_id=rule_profile.user_id,
         workout_type="full_body",
         phases={p: [] for p in PHASES} | {"main_lifts": [Slot(forbidden_id, 4, "6", 80, 5)]},
-        generator="injected",
-        grammar_version=grammar.version,
+        generator="llm",
+        grammar_version=catalog.version,
         profile_hash=rule_profile.profile_hash,
     )
 
@@ -276,31 +284,35 @@ def test_safety_llm_pass_cannot_override_rule_fail(exercise_db, rule_profile) ->
         llm_judge_fn=lambda payload: {
             "verdict": "pass",
             "violations": [],
-            "rationale": "看起来没问题",
+            "rationale": "该动作在本次计划中负荷低且无深屈膝，基线提示不适用",
         }
-    ).evaluate(draft, rule_profile, grammar)
+    ).evaluate(draft, rule_profile, catalog)
 
     assert report.llm_verdict == "pass"
-    assert report.passed is False          # 规则 fail 不会被 LLM 的 pass 推翻
+    assert report.passed is True                       # 模型的决定就是最终结论
+    assert report.violations == ()
+    # 但基线命中项仍被记录下来，分歧是可见的（论文里的指标）
+    assert any(v.code == "FORBIDDEN_ID" for v in report.baseline_flags)
     assert report.llm_disagreed is True
-    assert any(v.code == "FORBIDDEN_ID" for v in report.violations)
 
 
 def test_safety_llm_bare_fail_is_downgraded_to_error(exercise_db, rule_profile) -> None:
-    """只说 fail 却不给合法违规码 → 不采信，退回规则结论（防 DoS）。"""
-    grammar = _grammar(exercise_db, rule_profile)
+    """只说 fail 却不给合法违规码 → 不采信，退回基线（防 DoS）。"""
+    catalog = _catalog(exercise_db)
     draft = run_pipeline(exercise_db, KNEE_HIGH, PAIN_FEEDBACK).draft
 
     report = SafetyEvalAgent(
         llm_judge_fn=lambda payload: {"verdict": "fail", "violations": []}
-    ).evaluate(draft, rule_profile, grammar)
+    ).evaluate(draft, rule_profile, catalog)
 
     assert report.llm_verdict == "error"
-    assert report.passed is True           # 规则说 pass，无有效反证
+    assert report.review_mode == "baseline_fallback"
+    assert report.passed is True           # 基线没有命中项
+    assert report.baseline_flags == ()
 
 
 def test_safety_llm_unknown_code_is_ignored(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
+    catalog = _catalog(exercise_db)
     draft = run_pipeline(exercise_db, KNEE_HIGH, PAIN_FEEDBACK).draft
 
     report = SafetyEvalAgent(
@@ -311,7 +323,7 @@ def test_safety_llm_unknown_code_is_ignored(exercise_db, rule_profile) -> None:
             ],
             "rationale": "自由文本理由",
         }
-    ).evaluate(draft, rule_profile, grammar)
+    ).evaluate(draft, rule_profile, catalog)
 
     assert report.llm_verdict == "error"
     assert report.passed is True
@@ -319,54 +331,114 @@ def test_safety_llm_unknown_code_is_ignored(exercise_db, rule_profile) -> None:
 
 
 def test_safety_llm_error_falls_back(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
+    catalog = _catalog(exercise_db)
     draft = run_pipeline(exercise_db, KNEE_HIGH, PAIN_FEEDBACK).draft
 
     def explode(payload):
         raise TimeoutError("upstream 529")
 
-    report = SafetyEvalAgent(llm_judge_fn=explode).evaluate(draft, rule_profile, grammar)
+    report = SafetyEvalAgent(llm_judge_fn=explode).evaluate(draft, rule_profile, catalog)
 
     assert report.llm_verdict == "error"
+    assert report.review_mode == "baseline_fallback"
     assert report.passed is True
-    assert "退回规则结论" in report.llm_rationale
+    assert "退回基线结论" in report.llm_rationale
 
 
-# ── 4. 计划生成：越界 ID 在解析处被挡回 ────────────────────────────────────
-def test_plan_agent_rejects_forbidden_id_from_llm(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
+def test_safety_llm_error_does_not_silently_pass_unsafe_plan(
+    exercise_db, rule_profile
+) -> None:
+    """调用失败 + 基线有命中项 → 判 fail。网络抖动不能变成安全漏洞。"""
+    catalog = _catalog(exercise_db)
     forbidden_id = sorted(rule_profile.forbidden_reasons)[0]
-    valid_id = grammar.candidates("main_lifts")[0]
+    draft = PlanDraft(
+        plan_id="draft_bad",
+        user_id=rule_profile.user_id,
+        workout_type="full_body",
+        phases={p: [] for p in PHASES} | {"main_lifts": [Slot(forbidden_id, 4, "6", 80, 5)]},
+        generator="llm",
+        grammar_version=catalog.version,
+        profile_hash=rule_profile.profile_hash,
+    )
+
+    report = SafetyEvalAgent(llm_judge_fn=lambda payload: (_ for _ in ()).throw(
+        TimeoutError("boom")
+    )).evaluate(draft, rule_profile, catalog)
+
+    assert report.llm_verdict == "error"
+    assert report.passed is False
+    assert any(v.code == "FORBIDDEN_ID" for v in report.violations)
+
+
+# ── 4. 计划生成：只有「对不上知识库」会被清洗 ───────────────────────────────
+def test_plan_agent_keeps_forbidden_id_for_the_reviewer(exercise_db, rule_profile) -> None:
+    catalog = _catalog(exercise_db)
+    forbidden_id = sorted(rule_profile.forbidden_reasons)[0]
 
     def llm(payload, schema):
-        phases = {p: [{"exercise_id": valid_id}] for p in PHASES}
-        phases["main_lifts"] = [{"exercise_id": forbidden_id}]
-        return phases
+        return {"main_lifts": [{"exercise_id": forbidden_id, "sets": 3, "reps": "8"}]}
 
-    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, grammar)
+    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, catalog)
 
     assert draft.generator == "llm"
     assert draft.prompt_version == PLAN_GEN_PROMPT_VERSION
-    assert forbidden_id in draft.rejected_ids
-    assert forbidden_id not in draft.all_ids()
+    assert forbidden_id in draft.all_ids(), "v3 起不再在解析层挡回禁忌动作"
+    report = SafetyEvalAgent().evaluate(draft, rule_profile, catalog)
+    assert not report.passed
+
+
+def test_plan_agent_drops_unknown_id(exercise_db, rule_profile) -> None:
+    catalog = _catalog(exercise_db)
+    good = next(row["exercise_id"] for row in catalog.rows() if "main_lifts" in row["phases"])
+
+    def llm(payload, schema):
+        return {
+            "main_lifts": [
+                {"exercise_id": 987654, "sets": 3, "reps": "8"},
+                {"exercise_id": good, "sets": 3, "reps": "8"},
+            ]
+        }
+
+    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, catalog)
+    assert draft.phases["main_lifts"][0].exercise_id == good
+    assert draft.rejected_ids == (987654,)
+
+
+def test_plan_agent_falls_back_when_model_returns_nothing(exercise_db, rule_profile) -> None:
+    """模型给不出任何可用槽位时退回确定性后端，而不是交一份空计划。"""
+    catalog = _catalog(exercise_db)
+
+    def llm(payload, schema):
+        return {"main_lifts": [{"exercise_id": 987654}]}
+
+    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, catalog)
+    assert draft.generator == "deterministic"
+    assert draft.slot_count() > 0
 
 
 def test_plan_agent_falls_back_when_llm_raises(exercise_db, rule_profile) -> None:
-    grammar = _grammar(exercise_db, rule_profile)
+    catalog = _catalog(exercise_db)
 
     def llm(payload, schema):
         raise RuntimeError("boom")
 
-    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, grammar)
+    draft = PlanAgent(llm_plan_fn=llm).generate(rule_profile, catalog)
 
     assert draft.generator == "deterministic"
     assert draft.slot_count() > 0
     assert set(draft.all_ids()) <= set(rule_profile.allowed_ids)
 
 
-# ── 5. 全链路：三个 Agent 都走 LLM，审计留痕，合规性不变 ────────────────────
-def test_pipeline_with_all_three_llm_agents(exercise_db) -> None:
-    calls = {"state": 0, "plan": 0, "safety": 0}
+# ── 5. 全链路：会审 → 打回 → 重写 ───────────────────────────────────────────
+def test_pipeline_runs_a_full_review_loop(exercise_db, rule_profile) -> None:
+    """生成端第一版越线 → 审查驳回 → 生成端自己改 → 审查通过。"""
+    catalog = _catalog(exercise_db)
+    forbidden_id = sorted(rule_profile.forbidden_reasons)[0]
+    good_id = next(
+        row["exercise_id"] for row in catalog.rows()
+        if "main_lifts" in row["phases"] and row["exercise_id"] not in rule_profile.forbidden_reasons
+    )
+    calls = {"state": 0, "plan": 0, "safety": 0, "attempts": []}
 
     def state_fn(payload):
         calls["state"] += 1
@@ -374,14 +446,25 @@ def test_pipeline_with_all_three_llm_agents(exercise_db) -> None:
 
     def plan_fn(payload, schema):
         calls["plan"] += 1
-        return {
-            phase: [{"exercise_id": ids[0]}]
-            for phase, ids in payload["phase_candidates"].items()
-            if ids
-        }
+        calls["attempts"].append(bool(payload.get("review_feedback")))
+        if not payload.get("review_feedback"):
+            return {"main_lifts": [{"exercise_id": forbidden_id, "sets": 5, "reps": "3"}]}
+        return {"main_lifts": [{"exercise_id": good_id, "sets": 3, "reps": "8"}]}
 
     def safety_fn(payload):
         calls["safety"] += 1
+        bad = [
+            f for f in payload["baseline_flags"] if f["code"] == "FORBIDDEN_ID"
+        ]
+        if bad:
+            return {
+                "verdict": "fail",
+                "violations": [
+                    {"code": "FORBIDDEN_ID", "exercise_id": bad[0]["exercise_id"],
+                     "phase": bad[0]["phase"], "reason": "基线禁忌且本次不适用豁免"}
+                ],
+                "rationale": "主项动作与膝伤禁忌冲突",
+            }
         return {"verdict": "pass", "violations": [], "rationale": "未发现违规"}
 
     result = run_pipeline(
@@ -393,36 +476,43 @@ def test_pipeline_with_all_three_llm_agents(exercise_db) -> None:
         safety_agent=SafetyEvalAgent(llm_judge_fn=safety_fn),
     )
 
-    assert calls == {"state": 1, "plan": 1, "safety": 1}
-    assert result.draft.generator == "llm"
-    assert result.report.llm_verdict == "pass"
+    assert calls["state"] == 1
+    assert calls["plan"] == 2              # 初版 + 一次重写
+    assert calls["safety"] == 2
+    assert calls["attempts"] == [False, True]
+    assert result.review_rounds == 1
     assert result.report.passed
+    assert result.report.review_mode == "agent"
+    assert result.draft.generator == "llm_revised"
+    assert forbidden_id not in result.draft.all_ids()
 
-    # 核心不变量：计划动作与禁忌集仍然互斥
-    assert set(result.draft.all_ids()) & set(result.profile.forbidden_reasons) == set()
-
-    # 三个阶段的审计记录都带 LLM 痕迹
+    # 审计链：三个 Agent + 一轮 review_round
+    stages = [e["stage"] for e in result.audit.to_dict()["entries"]]
+    assert stages[:3] == ["state_risk", "plan_gen", "safety_eval"]
+    assert "review_round" in stages
     entries = {e["stage"]: e for e in result.audit.to_dict()["entries"]}
-    assert entries["state_risk"]["out"]["llm"]["status"] == "empty"
-    assert entries["state_risk"]["out"]["llm"]["prompt_version"] == STATE_RISK_PROMPT_VERSION
+    assert entries["plan_gen"]["in"]["catalog_size"] == len(exercise_db)
     assert entries["plan_gen"]["out"]["generator"] == "llm"
-    assert entries["plan_gen"]["out"]["prompt_version"] == PLAN_GEN_PROMPT_VERSION
-    assert entries["safety_eval"]["out"]["llm_verdict"] == "pass"
+    # 首轮：审查驳回；重写轮：审查通过
+    assert entries["safety_eval"]["out"]["llm_verdict"] == "fail"
+    assert entries["review_round"]["out"]["verdict"] == "pass"
+    assert entries["review_round"]["out"]["passed"] is True
     assert (
         entries["safety_eval"]["out"]["llm_prompt_version"]
         == SAFETY_EVAL_PROMPT_VERSION
     )
 
 
-def test_pipeline_without_llm_marks_everything_skipped(exercise_db) -> None:
-    """未配 key 时的降级路径：三个 Agent 全部规则后端，字段必须是 skipped。"""
+def test_pipeline_without_llm_is_marked_as_unaudited(exercise_db) -> None:
+    """未配 key 时的降级路径：结论由基线谓词给出，并如实标注未经审查。"""
     result = run_pipeline(exercise_db, KNEE_HIGH, PAIN_FEEDBACK)
 
     assert result.profile.llm_status == "skipped"
     assert result.draft.generator == "deterministic"
     assert result.report.llm_verdict == "skipped"
+    assert result.report.review_mode == "baseline"
     assert result.report.passed
-    assert result.report.llm_disagreed is False
+    assert result.reviewed_by_agent is False
 
 
 # ── 6. JSON 解析容错 ────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agents.catalog import ExerciseCatalog
 from agents.contracts import PHASES, PlanDraft, RiskProfile, Slot
 from agents.grammar import build_exercise_index, compile_risk_grammar
 from agents.pipeline import run_pipeline
@@ -109,9 +110,9 @@ def test_pipeline_is_deterministic_with_seed(exercise_db) -> None:
     assert a.draft.all_ids() == b.draft.all_ids()
 
 
-# ── 评估 Agent 的独立性 ─────────────────────────────────────────────────────
+# ── 审查 Agent 的独立性 ─────────────────────────────────────────────────────
 def test_safety_agent_catches_injected_forbidden(exercise_db) -> None:
-    """生成 Agent 被绕过（外部注入禁忌动作）时，评估 Agent 必须拦下。"""
+    """生成 Agent 被绕过（外部注入禁忌动作）时，基线谓词必须报出来。"""
     result = run_pipeline(exercise_db, KNEE_HIGH, seed=1)
     profile = result.profile
     bad_id = sorted(profile.forbidden_reasons)[0]
@@ -122,27 +123,30 @@ def test_safety_agent_catches_injected_forbidden(exercise_db) -> None:
         workout_type="full_body",
         phases={p: list(result.draft.phases.get(p, [])) for p in PHASES},
         generator="external",
-        grammar_version="grammar/1.0.0",
+        grammar_version="catalog/1.0.0",
         profile_hash=profile.profile_hash,
     )
     poisoned.phases["main_lifts"].insert(0, Slot(bad_id, 3, "10", 50, 4))
 
-    grammar = compile_risk_grammar(profile, build_exercise_index(exercise_db))
-    report = SafetyEvalAgent().evaluate(poisoned, profile, grammar)
+    report = SafetyEvalAgent().evaluate(poisoned, profile, ExerciseCatalog(exercise_db))
 
     assert not report.passed
     assert any(v.code == "FORBIDDEN_ID" and v.exercise_id == bad_id for v in report.violations)
 
 
-def test_adversarial_probe_blocks_everything(exercise_db) -> None:
+def test_baseline_flags_are_recorded_as_evidence(exercise_db) -> None:
+    """基线命中项现在以「证据」形式存在：合规计划下应为空，且被记入报告。"""
     result = run_pipeline(exercise_db, KNEE_HIGH, seed=3)
-    assert result.report.adversarial_probes > 0
-    assert result.report.adversarial_blocked == result.report.adversarial_probes
+    assert result.report.passed
+    assert result.report.baseline_flags == ()
+    assert result.report.review_mode == "baseline"   # 未接模型 → 降级判定
+    assert result.reviewed_by_agent is False
 
 
 def test_joint_cap_predicate(exercise_db) -> None:
+    """基线谓词仍能算出 JOINT_CAP —— 只是它现在作为证据交给审查 Agent。"""
     index = build_exercise_index(exercise_db)
-    # 人为把 knee 上限压到 1，深蹲(risk 4)应触发 JOINT_CAP
+    catalog = ExerciseCatalog(exercise_db)
     profile = RiskProfile(
         user_id="u_cap",
         allowed_ids=tuple(index.keys()),
@@ -151,10 +155,15 @@ def test_joint_cap_predicate(exercise_db) -> None:
         impact_ceiling=5,
         load_pct_cap=None,
     )
-    grammar = compile_risk_grammar(profile, index)
     squat = next(eid for eid, ex in index.items() if "knee" in ex.get("involved_joints", []))
-    v = grammar.validate(Slot(squat, 3, "10", 50, grammar.impact_of(squat)), "main_lifts")
-    assert v is not None and v.code == "JOINT_CAP"
+    draft = PlanDraft(
+        plan_id="p", user_id="u_cap", workout_type="full_body",
+        phases={p: [] for p in PHASES} | {"main_lifts": [Slot(squat, 3, "10", 50)]},
+        generator="llm", grammar_version=catalog.version,
+        profile_hash=profile.profile_hash,
+    )
+    flags = SafetyEvalAgent._baseline_flags(draft, profile, catalog)
+    assert any(f.code == "JOINT_CAP" and f.exercise_id == squat for f in flags)
 
 
 def test_load_pct_cap_applied_from_feedback(exercise_db) -> None:
@@ -191,19 +200,15 @@ def test_healthy_user_gets_richer_plan_than_injured(exercise_db) -> None:
 
 
 # ── LLM 后端（用假模型验证，不需要真 key）────────────────────────────────────
-def _knee_profile_and_grammar(exercise_db):
-    index = build_exercise_index(exercise_db)
+def _knee_profile_and_catalog(exercise_db):
+    catalog = ExerciseCatalog(exercise_db)
     profile = run_pipeline(exercise_db, KNEE_HIGH).profile
-    return profile, compile_risk_grammar(profile, index)
+    return profile, catalog
 
 
-def test_llm_backend_receives_enum_masked_schema(exercise_db) -> None:
-    """下发给模型的 schema，每个阶段的 enum 必须收敛到该阶段的候选集。
-
-    v2 语义：enum 不再等于全局允许集，而是逐阶段收紧 —— 模型不仅无法输出
-    禁忌动作，也无法把「拉伸动作」塞进主项段。
-    """
-    profile, grammar = _knee_profile_and_grammar(exercise_db)
+def test_llm_backend_sees_the_whole_catalog(exercise_db) -> None:
+    """v3 起没有 enum 掩码：模型看到整库，禁忌动作也在里面。"""
+    profile, catalog = _knee_profile_and_catalog(exercise_db)
     captured = {}
 
     def fake_llm(payload, schema):
@@ -211,65 +216,56 @@ def test_llm_backend_receives_enum_masked_schema(exercise_db) -> None:
         captured["schema"] = schema
         return {}
 
-    PlanAgent(llm_plan_fn=fake_llm).generate(profile, grammar, "full_body")
+    PlanAgent(llm_plan_fn=fake_llm).generate(profile, catalog, "full_body")
+
+    rows = captured["payload"]["exercise_catalog"]
+    ids = {row["exercise_id"] for row in rows}
+    assert ids == set(catalog.ids)
+    assert set(profile.forbidden_reasons) <= ids, "基线禁忌也要给模型看到"
 
     props = captured["schema"]["schema"]["properties"]
     for phase in PHASES:
-        enum = set(props[phase]["items"]["properties"]["exercise_id"]["enum"])
-        # ① 不含任何禁忌动作
-        assert not (enum & set(profile.forbidden_reasons)), phase
-        # ② 是允许集的子集
-        assert enum <= set(profile.allowed_ids), phase
-        # ③ 与该阶段的可解码集合完全一致（既没漏也没多）
-        assert enum == set(grammar.phase_allowed_ids(phase)), phase
-
-    # 热身段的 enum 必须全部是阶段归属包含 warm_up 的动作
-    warm = set(props["warm_up"]["items"]["properties"]["exercise_id"]["enum"])
-    assert warm, "热身段 enum 不应为空"
-    assert all(grammar.phase_matches(eid, "warm_up") for eid in warm)
-
-    assert captured["schema"]["strict"] is True
-    # 请求体里也不得出现伤病原文
+        assert "enum" not in props[phase]["items"]["properties"]["exercise_id"]
+    # 请求体里可以出现病历原文（生成端要自己判断），但不含内部规则细节
     dumped = json.dumps(captured["payload"], ensure_ascii=False)
-    assert "meniscus" not in dumped and "injury" not in dumped
+    assert "meniscus" in dumped
 
 
-def test_llm_backend_rejects_forbidden_ids_at_parse(exercise_db) -> None:
-    """模型即便吐了禁忌 ID，解析阶段就要挡回，绝不进 draft。"""
-    profile, grammar = _knee_profile_and_grammar(exercise_db)
-    forbidden = sorted(profile.forbidden_reasons)[:3]
-    # 显式挑一个属于 main_lifts 的允许动作，避免依赖 ID 顺序
-    good = [
-        eid for eid in profile.allowed_ids if grammar.phase_matches(eid, "main_lifts")
-    ][:1]
-    assert good, "该档案下主项段应有候选"
+def test_llm_backend_keeps_model_choices_and_flags_only_unknown_ids(exercise_db) -> None:
+    """禁忌 ID 与阶段错配都放行（交给审查），只有库里没有的 ID 被丢弃。"""
+    profile, catalog = _knee_profile_and_catalog(exercise_db)
+    forbidden = sorted(profile.forbidden_reasons)[:2]
+    good = next(row["exercise_id"] for row in catalog.rows() if "main_lifts" in row["phases"])
 
     def rogue_llm(payload, schema):
         return {
-            "warm_up": [{"exercise_id": forbidden[0], "sets": 2, "reps": "15", "impact": 1}],
+            "warm_up": [{"exercise_id": forbidden[0], "sets": 2, "reps": "15"}],
             "main_lifts": [
-                {"exercise_id": forbidden[1], "sets": 4, "reps": "6-8", "impact": 4},
-                {"exercise_id": good[0], "sets": 4, "reps": "6-8", "impact": 2},
+                {"exercise_id": forbidden[1], "sets": 4, "reps": "6-8"},
+                {"exercise_id": good, "sets": 4, "reps": "6-8"},
+                {"exercise_id": 999999, "sets": 3, "reps": "10"},
             ],
         }
 
-    draft = PlanAgent(llm_plan_fn=rogue_llm).generate(profile, grammar, "full_body")
+    draft = PlanAgent(llm_plan_fn=rogue_llm).generate(profile, catalog, "full_body")
 
     assert draft.generator == "llm"
-    assert not (set(draft.all_ids()) & set(profile.forbidden_reasons))
-    assert set(draft.rejected_ids) == set(forbidden[:2])
-    assert good[0] in draft.all_ids()
-    # 落进 draft 的东西仍然要能通过评估
-    assert SafetyEvalAgent().evaluate(draft, profile, grammar).passed
+    assert set(draft.all_ids()) == {forbidden[0], forbidden[1], good}
+    assert draft.rejected_ids == (999999,)
+
+    # 放行的代价：基线会把这两条标出来，模型可以在会审里被驳回
+    report = SafetyEvalAgent().evaluate(draft, profile, catalog)
+    assert not report.passed
+    assert {v.exercise_id for v in report.violations if v.code == "FORBIDDEN_ID"} == set(forbidden)
 
 
 def test_llm_backend_falls_back_to_deterministic_on_error(exercise_db) -> None:
-    profile, grammar = _knee_profile_and_grammar(exercise_db)
+    profile, catalog = _knee_profile_and_catalog(exercise_db)
 
     def broken_llm(payload, schema):
         raise RuntimeError("api down")
 
-    draft = PlanAgent(llm_plan_fn=broken_llm).generate(profile, grammar, "full_body", seed=1)
+    draft = PlanAgent(llm_plan_fn=broken_llm).generate(profile, catalog, "full_body", seed=1)
     assert draft.generator == "deterministic"
     assert draft.slot_count() > 0
     assert not (set(draft.all_ids()) & set(profile.forbidden_reasons))

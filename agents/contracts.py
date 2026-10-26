@@ -18,7 +18,9 @@ PHASES: Tuple[str, ...] = (
     "cool_down",
 )
 
-# 违规码：评估 Agent 只返回这些枚举，不返回自由文本理由
+# 违规码：评估 Agent 只返回这些枚举，不返回自由文本理由。
+# v3 起前七项由「基线谓词」算出并作为**证据**交给审查 Agent，后六项只能由
+# 模型在审查时产出 —— 两条来源最终都汇进同一份 violations 通道。
 VIOLATION_CODES: Dict[str, str] = {
     "FORBIDDEN_ID": "命中禁止动作清单",
     "UNKNOWN_ID": "动作 ID 不在知识库中",
@@ -27,17 +29,31 @@ VIOLATION_CODES: Dict[str, str] = {
     "LOAD_PCT": "训练强度超过动态约束上限",
     "DUPLICATE": "同一阶段内动作重复",
     "STALE_PROFILE": "计划基于过期的风险档案生成",
-    "PRESCRIPTION_RANGE": "组数/次数/强度超出该动作的合法区间",
-    "SEQUENCE": "阶段安排不合理（仅由 LLM 审查通道产出）",
-    "VOLUME": "总容量超出用户当前承受水平（仅由 LLM 审查通道产出）",
-    "INTENSITY": "强度与用户训练水平不匹配（仅由 LLM 审查通道产出）",
-    "RECOVERY": "恢复安排不足（仅由 LLM 审查通道产出）",
-    "CONTRAINDICATION": "病历明示但规则集未覆盖的禁忌（仅由 LLM 审查通道产出）",
+    "PRESCRIPTION_RANGE": "组数/次数/强度与该动作性质明显不符",
+    "SEQUENCE": "阶段安排不合理",
+    "VOLUME": "总容量超出用户当前承受水平",
+    "INTENSITY": "强度与用户训练水平不匹配",
+    "RECOVERY": "恢复安排不足",
+    "CONTRAINDICATION": "病历明示但基线谓词未覆盖的禁忌",
+    "EQUIPMENT_UNAVAILABLE": "使用了用户没有的器械（可执行性问题）",
 }
 
-# LLM 通道独有：规则层结构上判不出来的维度
+# 基线谓词判得出（模型也能补充判断）与只能由模型判断的维度
+BASELINE_CODES = frozenset(
+    {
+        "FORBIDDEN_ID",
+        "UNKNOWN_ID",
+        "JOINT_CAP",
+        "IMPACT_CEILING",
+        "LOAD_PCT",
+        "DUPLICATE",
+        "STALE_PROFILE",
+        "EQUIPMENT_UNAVAILABLE",
+    }
+)
+
 LLM_ONLY_CODES = frozenset(
-    {"SEQUENCE", "VOLUME", "INTENSITY", "RECOVERY", "CONTRAINDICATION"}
+    {"SEQUENCE", "VOLUME", "INTENSITY", "RECOVERY", "CONTRAINDICATION", "PRESCRIPTION_RANGE"}
 )
 
 
@@ -199,8 +215,8 @@ class PlanDraft:
     grammar_version: str
     prompt_version: str = ""
     profile_hash: str = ""
-    rejected_ids: Tuple[int, ...] = ()   # 生成阶段被文法挡回的 ID（LLM 幻觉审计）
-    adjusted_slots: int = 0              # 参数被规则夹紧的槽位数（模型越界程度）
+    rejected_ids: Tuple[int, ...] = ()   # 知识库里不存在的 ID（模型幻觉审计）
+    adjusted_slots: int = 0              # 参数缺失、由处方兜底补全的槽位数
 
     def iter_slots(self) -> Iterable[Tuple[str, Slot]]:
         for phase in PHASES:
@@ -267,17 +283,27 @@ class Violation:
 
 @dataclass
 class SafetyReport:
-    """安全评估 Agent 的产物。"""
+    """安全评估 Agent 的产物。
+
+    v3 起判定权归属审查 Agent 本身：
+
+        review_mode="agent"    模型裁决。``baseline_flags`` 只是上游规则的
+                               提示，模型可以确认、也可以否决，但必须给理由。
+        review_mode="baseline" 没有审查 Agent（未配 key）时的降级路径，
+                               由基线谓词直接判定，响应里会明确标注。
+        review_mode="baseline_fallback"
+                               Agent 调用失败（超时 / 坏 JSON），退回基线判定。
+    """
 
     passed: bool
     violations: Tuple[Violation, ...] = ()
+    # 基线谓词的命中项 —— 证据，不是判决。只在降级模式下直接当违规用。
+    baseline_flags: Tuple[Violation, ...] = ()
     checked_slots: int = 0
-    masked_count: int = 0          # 候选池里被文法屏蔽掉的禁忌动作数量
-    adversarial_probes: int = 0    # 对抗探针：主动注入禁忌 ID 后仍被拦下的次数
-    adversarial_blocked: int = 0
-    # ── LLM 审查通道（合取验收，只能加严不能放宽）────────────────────────
+    review_mode: str = "baseline"
+    # ── 审查 Agent 的痕迹 ─────────────────────────────────────────────────
     llm_verdict: str = "skipped"   # pass | fail | error | skipped
-    llm_disagreed: bool = False    # LLM 结论与规则结论不一致
+    llm_disagreed: bool = False    # 模型结论与基线提示不一致（论文里的分歧指标）
     llm_rationale: str = ""
     llm_prompt_version: str = ""
 
@@ -285,10 +311,9 @@ class SafetyReport:
         return {
             "passed": self.passed,
             "violations": [v.to_dict() for v in self.violations],
+            "baseline_flags": [v.to_dict() for v in self.baseline_flags],
             "checked_slots": self.checked_slots,
-            "masked_count": self.masked_count,
-            "adversarial_probes": self.adversarial_probes,
-            "adversarial_blocked": self.adversarial_blocked,
+            "review_mode": self.review_mode,
             "llm_verdict": self.llm_verdict,
             "llm_disagreed": self.llm_disagreed,
             "llm_rationale": self.llm_rationale,
