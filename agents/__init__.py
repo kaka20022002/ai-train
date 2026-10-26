@@ -13,6 +13,8 @@
     contracts      数据契约（唯一跨 Agent 传输格式）
     grammar        风险条件约束解码（编译 + 校验 + 候选采样）
     prescription   处方推导（动作类型 × 阶段 → 组数/次数/强度）
+    prompts        三份独立的 Agent system prompt
+    llm_bridge     同一个 LLM 客户端 → 三个职责不同的调用入口
     state_agent    状态与风险分析 Agent
     plan_agent     计划生成 Agent
     safety_agent   计划安全评估 Agent
@@ -28,8 +30,14 @@ from agents.contracts import (
     Violation,
 )
 from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
+from agents.llm_bridge import AgentBridges, build_bridges
 from agents.pipeline import GenerationResult, PipelineAudit, run_pipeline
 from agents.prescription import Prescription, prescribe
+from agents.prompts import (
+    PLAN_GEN_PROMPT_VERSION,
+    SAFETY_EVAL_PROMPT_VERSION,
+    STATE_RISK_PROMPT_VERSION,
+)
 from agents.render import build_safety_notes, render_plan_draft
 from agents.plan_agent import PlanAgent
 from agents.safety_agent import SafetyEvalAgent
@@ -44,6 +52,8 @@ __all__ = [
     "RiskGrammar",
     "build_exercise_index",
     "compile_risk_grammar",
+    "AgentBridges",
+    "build_bridges",
     "GenerationResult",
     "PipelineAudit",
     "run_pipeline",
@@ -54,4 +64,7 @@ __all__ = [
     "PlanAgent",
     "SafetyEvalAgent",
     "StateRiskAgent",
+    "STATE_RISK_PROMPT_VERSION",
+    "PLAN_GEN_PROMPT_VERSION",
+    "SAFETY_EVAL_PROMPT_VERSION",
 ]

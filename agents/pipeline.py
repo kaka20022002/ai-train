@@ -65,15 +65,24 @@ def run_pipeline(
     feedback: Optional[Dict[str, Any]] = None,
     workout_type: str = "full_body",
     plan_agent: Optional[PlanAgent] = None,
+    state_agent: Optional[StateRiskAgent] = None,
+    safety_agent: Optional[SafetyEvalAgent] = None,
     max_repair: int = 2,
     seed: Optional[int] = None,
 ) -> GenerationResult:
-    """跑完整条链路：状态分析 → 计划生成 → 安全评估 →（必要时）修复。"""
+    """跑完整条链路：状态分析 → 计划生成 → 安全评估 →（必要时）修复。
+
+    三个 Agent 都可以从外部注入 —— 这是「换掉任一 Agent 而不动编排」的接口。
+    不注入时等价于全规则后端，行为与 v1 完全一致。
+
+    注入 LLM 版本时，三个 Agent 共用同一个 client、各自一份 prompt，
+    但彼此**看不到对方的自然语言产物**：通道里只有结构化字段。
+    """
     audit = PipelineAudit()
     index = build_exercise_index(exercise_db)
 
     # ── Stage 1：状态与风险分析 ───────────────────────────────────────────
-    state_agent = StateRiskAgent(exercise_db)
+    state_agent = state_agent or StateRiskAgent(exercise_db)
     profile = state_agent.analyze(user_profile, feedback)
     SafetyEvalAgent.assert_grammar_invariant(profile)
 
@@ -93,6 +102,13 @@ def run_pipeline(
             "impact_ceiling": profile.impact_ceiling,
             "load_pct_cap": profile.load_pct_cap,
             "rules": len(profile.rules),
+            "llm": {
+                "status": profile.llm_status or "skipped",
+                "prompt_version": profile.llm_prompt_version,
+                "appended_forbidden": list(profile.llm_forbidden),
+                "tightened_joint_caps": profile.llm_joint_caps,
+                "rationale": profile.llm_rationale,
+            },
         },
     )
 
@@ -110,13 +126,15 @@ def run_pipeline(
         {
             "plan_id": draft.plan_id,
             "generator": draft.generator,
+            "prompt_version": draft.prompt_version,
             "slots": draft.slot_count(),
             "ids": draft.all_ids(),
+            "rejected_ids": list(draft.rejected_ids),
         },
     )
 
     # ── Stage 3：安全评估 ─────────────────────────────────────────────────
-    evaluator = SafetyEvalAgent()
+    evaluator = safety_agent or SafetyEvalAgent()
     report = evaluator.evaluate(draft, profile, grammar)
     audit.record(
         "safety_eval",

@@ -61,10 +61,33 @@ python main.py
 
 - 是否启用 LLM：
   - `USE_REAL_LLM=true`  → 通过 `LLMClient` 调用真实 LLM；
-  - `USE_REAL_LLM=false` 或未设置 → 使用本地 Mock 生成器。
+  - `USE_REAL_LLM=false` 或未设置 → 使用本地规则/Mock 后端。
 - LLM 厂商选择：
-  - `LLM_PROVIDER=openai`（默认）
+  - `LLM_PROVIDER=openai`（默认，DeepSeek 等 OpenAI 兼容网关也走这条）
   - `LLM_PROVIDER=minimax`（示例 MiniMax 2.5 集成）
+
+### 一把 key 驱动三个 Agent
+
+`POST /generate_plan` 默认走三 Agent 管线（`engine=agents`）。三个 Agent 共用
+**同一组环境变量、同一个 `LLMClient` 实例**，但各自使用独立的 system prompt
+（见 `agents/prompts.py`）：
+
+| Agent | prompt 版本 | 职责 | 接不上 LLM 时 |
+| --- | --- | --- | --- |
+| `state_risk` | `state_risk/1.0.0` | 读病历文本，**只能追加**约束 | 退回纯规则阈值表 |
+| `plan_gen` | `plan_gen/1.0.0` | 在已裁剪的候选集内选动作 | 退回确定性采样 |
+| `safety_eval` | `safety_eval/1.0.0` | 独立审查，只输出枚举违规码 | 退回纯谓词校验 |
+
+两点设计约束值得注意：
+
+1. **合取验收**：`passed = rule_passed AND llm_passed`。接上 LLM 只会让判定更严，
+   永远不能放宽；LLM 通道超时或返回坏 JSON 时，判定退回规则结论而不是放行。
+2. **单向增强**：`state_risk` 的 LLM 建议只能让约束更紧（追加禁忌、下调关节上限）。
+   它提议移除禁忌或调高上限都会被丢弃 —— 上游一旦可被放宽，下游的合规性就不再可证。
+
+响应里 `safety.llm_verdict` / `safety.state_llm_status` / `generator_version`
+会显示三个 Agent 的实际后端，`audit` 数组逐条记录各自用的 prompt 版本，
+可直接用于对照实验（Mock vs LLM）。
 
 ### 使用 OpenAI 模型（示例 GPT-4.1）
 

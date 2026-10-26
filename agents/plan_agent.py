@@ -35,6 +35,7 @@ from agents.prescription import (
     phase_impact_limit,
     phase_quota,
 )
+from agents.prompts import PLAN_GEN_PROMPT_VERSION
 
 # 兼容旧引用：pipeline 等处仍按 ``PHASE_PRESCRIPTION[phase]["count"]`` 取数量
 PHASE_PRESCRIPTION: Dict[str, Dict[str, Any]] = {
@@ -268,6 +269,7 @@ class PlanAgent:
             phases=phases,
             generator="llm",
             grammar_version=grammar.version,
+            prompt_version=PLAN_GEN_PROMPT_VERSION,
             profile_hash=profile.profile_hash,
             rejected_ids=tuple(rejected),
         )

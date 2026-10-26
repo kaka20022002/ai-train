@@ -27,6 +27,7 @@ VIOLATION_CODES: Dict[str, str] = {
     "LOAD_PCT": "训练强度超过动态约束上限",
     "DUPLICATE": "同一阶段内动作重复",
     "STALE_PROFILE": "计划基于过期的风险档案生成",
+    "SEQUENCE": "阶段安排不合理（仅由 LLM 审查通道产出）",
 }
 
 
@@ -96,11 +97,21 @@ class RiskProfile:
     load_pct_cap: Optional[int]
     rules: Tuple[RuleSpec, ...] = ()
     profile_hash: str = ""
+    # ── LLM 增强通道的痕迹（仅供审计，不参与谓词判定）──────────────────────
+    llm_forbidden: Tuple[int, ...] = ()      # LLM 追加的禁忌 ID（规则集之外）
+    llm_joint_caps: Dict[str, int] = field(default_factory=dict)  # LLM 下调的关节上限
+    llm_rationale: str = ""
+    llm_status: str = ""                     # skipped | applied | empty | error
+    llm_prompt_version: str = ""
 
     def __post_init__(self) -> None:
         self.allowed_ids = tuple(sorted(int(i) for i in self.allowed_ids))
         self.forbidden_reasons = {int(k): str(v) for k, v in (self.forbidden_reasons or {}).items()}
         self.joint_caps = {str(k): int(v) for k, v in (self.joint_caps or {}).items()}
+        self.llm_forbidden = tuple(sorted(int(i) for i in (self.llm_forbidden or ())))
+        self.llm_joint_caps = {
+            str(k): int(v) for k, v in (self.llm_joint_caps or {}).items()
+        }
         if not self.profile_hash:
             self.profile_hash = self.compute_hash()
 
@@ -126,6 +137,11 @@ class RiskProfile:
             "load_pct_cap": self.load_pct_cap,
             "rules": [r.to_dict() for r in self.rules],
             "profile_hash": self.profile_hash,
+            "llm_forbidden": list(self.llm_forbidden),
+            "llm_joint_caps": dict(sorted(self.llm_joint_caps.items())),
+            "llm_rationale": self.llm_rationale,
+            "llm_status": self.llm_status,
+            "llm_prompt_version": self.llm_prompt_version,
         }
 
 
@@ -214,6 +230,11 @@ class SafetyReport:
     masked_count: int = 0          # 候选池里被文法屏蔽掉的禁忌动作数量
     adversarial_probes: int = 0    # 对抗探针：主动注入禁忌 ID 后仍被拦下的次数
     adversarial_blocked: int = 0
+    # ── LLM 审查通道（合取验收，只能加严不能放宽）────────────────────────
+    llm_verdict: str = "skipped"   # pass | fail | error | skipped
+    llm_disagreed: bool = False    # LLM 结论与规则结论不一致
+    llm_rationale: str = ""
+    llm_prompt_version: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -223,4 +244,8 @@ class SafetyReport:
             "masked_count": self.masked_count,
             "adversarial_probes": self.adversarial_probes,
             "adversarial_blocked": self.adversarial_blocked,
+            "llm_verdict": self.llm_verdict,
+            "llm_disagreed": self.llm_disagreed,
+            "llm_rationale": self.llm_rationale,
+            "llm_prompt_version": self.llm_prompt_version,
         }

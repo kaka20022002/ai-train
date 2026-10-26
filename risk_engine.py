@@ -352,10 +352,14 @@ class RiskAssessmentEngine:
         has_pain = pain_feedback.get('has_pain', False)
         
         if has_pain:
-            pain_location = pain_feedback.get('pain_location', 'unknown')
-            pain_severity = pain_feedback.get('pain_severity', 0)
-            trigger_exercise = pain_feedback.get('trigger_exercise', 'Unknown')
-            pain_type = pain_feedback.get('pain_type', 'unspecified')
+            # 注意：feedback 往往来自 Pydantic 的 model_dump()，未填写的字段会
+            # 以 None 而非「缺键」的形式出现。用 .get(k, default) 兜不住这种情况，
+            # 必须用 `or` —— 否则 pain_location 为 None 时 .upper() 会抛
+            # AttributeError，把整个 /generate_plan 打成 500。
+            pain_location = pain_feedback.get('pain_location') or 'unknown'
+            pain_severity = pain_feedback.get('pain_severity') or 0
+            trigger_exercise = pain_feedback.get('trigger_exercise') or 'Unknown'
+            pain_type = pain_feedback.get('pain_type') or 'unspecified'
             
             print(f"🩹 Pain Reported: {pain_location.upper()}")
             print(f"   Severity: {pain_severity}/10")
@@ -400,9 +404,14 @@ class RiskAssessmentEngine:
         
         # === Fatigue Feedback Analysis (Extended) ===
         fatigue_feedback = feedback_input.get('fatigue_feedback', {})
-        if fatigue_feedback:
-            overall_fatigue = fatigue_feedback.get('overall_fatigue', 5)
-            sleep_quality = fatigue_feedback.get('sleep_quality_last_night', 7)
+        # 同样要防 None：疲劳/睡眠字段留空时 model_dump() 会给 None，
+        # 直接拿去做数值比较会抛 TypeError。
+        if fatigue_feedback and any(
+            fatigue_feedback.get(k) is not None
+            for k in ('overall_fatigue', 'sleep_quality_last_night')
+        ):
+            overall_fatigue = fatigue_feedback.get('overall_fatigue') or 5
+            sleep_quality = fatigue_feedback.get('sleep_quality_last_night') or 7
             
             print(f"😴 Fatigue Level: {overall_fatigue}/10")
             print(f"💤 Sleep Quality: {sleep_quality}/10")

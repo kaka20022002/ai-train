@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Dict, Generator, List
 
@@ -79,6 +80,43 @@ def _equipment_block(user_profile: Dict[str, Any]) -> str:
         "【可用器材】用户仅有以下器材：" + labels + "（外加自重）。\n"
         "所有动作（含热身、激活、放松）必须只使用上述器材或纯自重，"
         "禁止安排需要其他器材的动作。\n\n"
+    )
+
+
+def _extract_json_object(text: str) -> Dict[str, Any]:
+    """Recover a single JSON object from a model reply.
+
+    Handles the three shapes actually observed in practice:
+
+    1. a clean JSON object;
+    2. a ```` ```json ... ``` ```` fenced block;
+    3. a leading sentence followed by the object ("好的，以下是结果：{...}").
+
+    Only a JSON *object* is accepted — an array or a bare scalar means the
+    caller's prompt was not followed, and guessing a mapping out of it would
+    hide the failure.
+    """
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json|JSON)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw).strip()
+
+    candidates: List[str] = [raw]
+    lo, hi = raw.find("{"), raw.rfind("}")
+    if lo != -1 and hi > lo:
+        candidates.append(raw[lo : hi + 1])
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+
+    raise ValueError(
+        "Could not parse a JSON object from the LLM reply. "
+        f"Raw content (first 300 chars): {text[:300]!r}"
     )
 
 
@@ -447,7 +485,11 @@ class LLMClient:
             f"Last error: {last_error}"
         )
 
-    def _call_provider(self, messages: List[Dict[str, str]]) -> str:
+    def _call_provider(
+        self,
+        messages: List[Dict[str, str]],
+        response_format: Dict[str, Any] | None = None,
+    ) -> str:
         """Send *messages* to the configured provider and return raw content.
 
         Automatically retries on transient server errors (HTTP 429 / 529)
@@ -459,7 +501,7 @@ class LLMClient:
 
         for attempt in range(len(retry_waits) + 1):
             try:
-                return self._call_provider_once(messages)
+                return self._call_provider_once(messages, response_format=response_format)
             except Exception as exc:
                 err_str = str(exc)
                 is_transient = (
@@ -488,16 +530,26 @@ class LLMClient:
 
         raise RuntimeError("Unreachable")  # pragma: no cover
 
-    def _call_provider_once(self, messages: List[Dict[str, str]]) -> str:
+    def _call_provider_once(
+        self,
+        messages: List[Dict[str, str]],
+        response_format: Dict[str, Any] | None = None,
+    ) -> str:
         """Single attempt to call the provider (no retry logic here)."""
 
         if self.provider == "openai":
-            completion = self._openai_client.chat.completions.create(
-                model=self.model,
-                messages=messages,  # type: ignore[arg-type]
-                temperature=0.7,
-                response_format={"type": "json_object"},
+            kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.7,
+            }
+            # 默认沿用历史上的 json_object 模式（generate_workout_plan 依赖它）；
+            # 显式传入 response_format 时以调用方为准（例如 Agent 审查只用
+            # 普通文本时不带该参数）。
+            kwargs["response_format"] = (
+                response_format if response_format is not None else {"type": "json_object"}
             )
+            completion = self._openai_client.chat.completions.create(**kwargs)
             return completion.choices[0].message.content
 
         if self.provider == "minimax":
@@ -508,6 +560,8 @@ class LLMClient:
                 "model": self.model,
                 "messages": messages,
             }
+            if response_format is not None:
+                payload["response_format"] = response_format
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -781,6 +835,39 @@ class LLMClient:
             return "".join(b.text for b in response.content if b.type == "text")
 
         raise RuntimeError(f"Unsupported provider: {self.provider}")
+
+    def chat_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        max_tokens: int = 2048,
+    ) -> Dict[str, Any]:
+        """Run a single completion and parse the reply as a JSON object.
+
+        This is the entry point used by the three plan-pipeline agents
+        (``agents/llm_bridge.py``). It differs from ``chat_completion`` in two
+        ways that matter for agent use:
+
+        1. It requests JSON output mode from providers that support it.
+        2. It tolerates the two failure modes seen with smaller models —
+           ```json fences and a leading sentence before the object — instead
+           of bubbling a ``JSONDecodeError`` up into the request handler.
+
+        Temperature defaults low because every agent prompt here asks for a
+        structured decision rather than creative text.
+
+        Raises:
+            ValueError: if no JSON object can be recovered from the reply.
+        """
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        content = self._call_provider(messages, response_format={"type": "json_object"})
+        if not content or not content.strip():
+            raise ValueError("LLM returned an empty response.")
+        return _extract_json_object(content)
 
     def stream_chat(
         self,

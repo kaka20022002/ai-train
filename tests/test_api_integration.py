@@ -261,3 +261,88 @@ def test_legacy_engine_still_available_for_comparison(client) -> None:
     assert data["generator_version"] in ("mock_v1.0", "mock_v1.0_fallback", "llm_v1.0")
     assert data["safety"] is None
     assert data["audit"] is None
+
+
+def test_pain_feedback_without_location_does_not_500(client) -> None:
+    """回归：pain_feedback 只给 has_pain=true 时不得 500。
+
+    线上真实路径里 feedback 由 Pydantic `model_dump()` 产出，未填写的字段会
+    以 **None** 出现（而不是缺键）。旧实现用 `.get(k, default)` 取值，
+    default 永远不生效，`pain_location.upper()` 直接把请求打成 500。
+    """
+    payload = {
+        "user_profile": KNEE_HIGH_PAYLOAD["user_profile"],
+        "feedback": {
+            "session_id": "sess_pain_only",
+            "user_id": "usr_api_agents",
+            "date": "2026-10-26",
+            "rpe": 8,
+            "pain_feedback": {"has_pain": True, "locations": ["knee"]},
+        },
+        "workout_type": "full_body",
+    }
+    resp = client.post("/generate_plan", json=payload)
+    assert resp.status_code == 200, resp.text
+
+    data = resp.json()
+    assert data["safety"]["passed"] is True
+    # 疼痛反馈应把整体冲击上限压到 3
+    assert data["audit"][0]["out"]["impact_ceiling"] == 3
+
+
+def test_agents_pipeline_uses_one_key_three_prompts(client, monkeypatch) -> None:
+    """装上三个 LLM 入口后，/generate_plan 必须真的走 LLM 且合规性不变。
+
+    模拟的是「只配了一个 API Key」的真实情形：一个 client，三份 prompt。
+    这里用假 client 替掉网络调用，只验证装配层与响应字段是否正确接线。
+    """
+    import main
+    from agents import build_bridges
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.systems: list[str] = []
+
+        def chat_json(self, system_prompt: str, user_prompt: str):
+            self.systems.append(system_prompt)
+            if "力量与体能教练" in system_prompt:
+                blob = user_prompt[user_prompt.index("{") : user_prompt.rindex("}") + 1]
+                payload = json.loads(blob)
+                picked: dict[str, list[dict[str, int]]] = {}
+                for phase, ids in payload["phase_candidates"].items():
+                    if ids:
+                        picked[phase] = [{"exercise_id": ids[0]}]
+                return picked
+            if "运动医学筛查" in system_prompt:
+                return {"additional_forbidden": [], "rationale": "规则已覆盖"}
+            if "独立的安全审查员" in system_prompt:
+                return {"verdict": "pass", "violations": [], "rationale": "未发现违规"}
+            raise AssertionError(f"出现了未预期的 prompt: {system_prompt[:40]}")
+
+    fake = FakeClient()
+    monkeypatch.setattr(main, "AGENT_BRIDGES", build_bridges(fake))
+
+    resp = client.post("/generate_plan", json=KNEE_HIGH_PAYLOAD)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # 一个 key、三份不同 prompt
+    assert len(fake.systems) >= 3
+    assert len({s[:60] for s in fake.systems}) >= 3
+
+    # 生成确实走了 LLM
+    assert data["generator_version"].startswith("llm+")
+
+    # 响应里带回三个 Agent 的状态
+    safety = data["safety"]
+    assert safety["llm_verdict"] == "pass"
+    assert safety["llm_disagreed"] is False
+    assert safety["state_llm_status"] in ("empty", "applied")
+    assert safety["llm_prompt_version"].startswith("safety_eval/")
+    assert safety["passed"] is True
+
+    # 合规性不因为换成 LLM 就松掉
+    forbidden = {ex["name"] for ex in data["risk_analysis"]["forbidden_exercises"]}
+    planned = {ex["name"] for slots in data["phases"].values() for ex in slots}
+    assert forbidden
+    assert not (planned & forbidden)

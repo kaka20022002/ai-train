@@ -47,7 +47,15 @@ from plan_program_sync import sync_plan_after_generation
 from history_analyzer import analyze_history
 
 # 三 Agent 计划生成管线（状态分析 → 计划生成 → 安全评估 + 风险条件约束解码）
-from agents import build_exercise_index, render_plan_draft, run_pipeline as run_agent_pipeline
+from agents import (
+    PlanAgent,
+    SafetyEvalAgent,
+    StateRiskAgent,
+    build_bridges,
+    build_exercise_index,
+    render_plan_draft,
+)
+from agents import run_pipeline as run_agent_pipeline
 from agents.contracts import PHASES as AGENT_PHASES
 
 # Database layer
@@ -266,6 +274,18 @@ class SafetySummaryResponse(BaseModel):
     grammar_version: str = ""
     rejected_ids: List[int] = Field(default_factory=list, description="生成阶段被白名单挡回的 ID")
     violations: List[SafetyViolationResponse] = Field(default_factory=list)
+    # ── 三个 Agent 的 LLM 审查痕迹（未启用 LLM 时分别为 skipped / deterministic）──
+    llm_verdict: str = Field(
+        "skipped", description="安全评估 Agent 的 LLM 结论：pass / fail / error / skipped"
+    )
+    llm_disagreed: bool = Field(
+        False, description="LLM 结论与规则结论是否不一致（论文里的分歧指标）"
+    )
+    llm_rationale: str = Field("", description="LLM 审查说明（仅作展示，不参与判定）")
+    llm_prompt_version: str = ""
+    state_llm_status: str = Field(
+        "", description="状态分析 Agent 的 LLM 状态：applied / empty / error / skipped"
+    )
 
 
 class GeneratePlanResponse(BaseModel):
@@ -417,6 +437,46 @@ except Exception as e:
     
     plan_generator = None
     ENGINE_LOADED = False
+    USE_REAL_LLM = False
+
+
+# ---------------------------------------------------------------------------
+# 三 Agent 管线的 LLM 装配
+#
+# 一个 client（一个 key、一个 provider）切成三个职责不同的入口：
+#   StateRiskAgent  ← bridges.state_fn    病历文本 → 追加型约束
+#   PlanAgent       ← bridges.plan_fn     候选集内选动作
+#   SafetyEvalAgent ← bridges.safety_fn   独立审查 → 枚举违规码
+#
+# 装配失败时 AGENT_BRIDGES 保持 None，管线自动退回全规则后端 —— 也就是说
+# key 没配、网络不通、provider 挂掉都不影响 /generate_plan 可用，只是
+# generator 字段会显示 deterministic。
+# ---------------------------------------------------------------------------
+AGENT_BRIDGES = None
+if USE_REAL_LLM:
+    try:
+        from llm_client import LLMClient
+
+        AGENT_BRIDGES = build_bridges(LLMClient())
+        _versions = ", ".join(
+            f"{k}={v}" for k, v in AGENT_BRIDGES.versions().items()
+        )
+        print(f"🧩 Agent LLM bridges ready ({LLMClient.__module__}): {_versions}")
+    except Exception as e:  # noqa: BLE001
+        AGENT_BRIDGES = None
+        print(
+            "⚠️  Agent LLM bridges unavailable — agents fall back to rule-only "
+            f"backends: {e}"
+        )
+else:
+    # 常见误配：key 填了但忘了打开开关。这里主动提示，省得对着
+    # generator=deterministic 排查半天。
+    if os.getenv("OPENAI_API_KEY") or os.getenv("MINIMAX_API_KEY"):
+        print(
+            "ℹ️  Detected an API key but USE_REAL_LLM=false — the three agents "
+            "are running on rule-only backends. Set USE_REAL_LLM=true in .env "
+            "to switch them to the LLM backends."
+        )
 
 
 # =============================================================================
@@ -580,11 +640,26 @@ async def generate_plan(
         # ── 生成计划：默认走三 Agent 管线，legacy 走旧单步生成器 ──────────
         agent_result = None
         if engine == "agents":
+            # 三个 Agent 的 LLM 后端在这里注入；AGENT_BRIDGES 为 None 时
+            # 不传参数，三个 Agent 都用各自的规则后端。
+            agent_kwargs: Dict[str, Any] = {}
+            if AGENT_BRIDGES is not None:
+                agent_kwargs = {
+                    "state_agent": StateRiskAgent(
+                        risk_engine.exercise_db,
+                        llm_enhance_fn=AGENT_BRIDGES.state_fn,
+                    ),
+                    "plan_agent": PlanAgent(llm_plan_fn=AGENT_BRIDGES.plan_fn),
+                    "safety_agent": SafetyEvalAgent(
+                        llm_judge_fn=AGENT_BRIDGES.safety_fn
+                    ),
+                }
             agent_result = run_agent_pipeline(
                 exercise_db=risk_engine.exercise_db,
                 user_profile=user_profile_dict,
                 feedback=feedback_dict,
                 workout_type=request.workout_type,
+                **agent_kwargs,
             )
             plan_export = render_plan_draft(
                 agent_result.draft,
@@ -599,7 +674,10 @@ async def generate_plan(
                 f"allowed={len(agent_result.profile.allowed_ids)} "
                 f"forbidden={len(agent_result.profile.forbidden_reasons)} | "
                 f"safety_passed={agent_result.report.passed} | "
-                f"generator={plan_export['generator_version']}"
+                f"generator={plan_export['generator_version']} | "
+                f"llm=[state={agent_result.profile.llm_status or 'skipped'} "
+                f"plan={agent_result.draft.generator} "
+                f"safety={agent_result.report.llm_verdict}]"
             )
         else:
             # Generate the workout plan (history_context passed through to LLM)
@@ -706,6 +784,11 @@ async def generate_plan(
                         SafetyViolationResponse(**v.to_dict())
                         for v in agent_result.report.violations
                     ],
+                    llm_verdict=agent_result.report.llm_verdict,
+                    llm_disagreed=agent_result.report.llm_disagreed,
+                    llm_rationale=agent_result.report.llm_rationale,
+                    llm_prompt_version=agent_result.report.llm_prompt_version,
+                    state_llm_status=agent_result.profile.llm_status or "skipped",
                 )
                 if agent_result
                 else None
