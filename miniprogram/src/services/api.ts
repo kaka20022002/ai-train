@@ -78,6 +78,58 @@ export interface TrainingProgram {
   sessions_per_week?: number;
 }
 
+export interface RecommendedPlan {
+  rank: number;
+  template_id: string;
+  name: string;
+  description: string;
+  goal: string;
+  goal_label: string;
+  split_type: string;
+  split_label: string;
+  total_weeks: number;
+  sessions_per_week: number;
+  difficulty: string;
+  difficulty_label: string;
+  estimated_duration_minutes: number;
+  focus_areas: string[];
+  required_equipment: string[];
+  score: number;
+  component_scores: {
+    profile: number;
+    behaviour: number;
+    population: number;
+  };
+  match_reasons: string[];
+  cautions: string[];
+  safe_exercise_count: number;
+  forbidden_exercise_count: number;
+}
+
+export interface PlanRecommendationResponse {
+  user_id: string;
+  generated_at: string;
+  model: {
+    name: string;
+    version: string;
+    weights: Record<string, number>;
+  };
+  user_snapshot: {
+    goal: string;
+    goal_label: string;
+    fitness_level: string;
+    training_frequency: number;
+    available_equipment: string[];
+    injury_count: number;
+    session_count: number;
+    average_completion_rate: number | null;
+    average_rpe: number | null;
+    actual_sessions_per_week: number | null;
+    pain_locations: string[];
+  };
+  recommendations: RecommendedPlan[];
+}
+
 export interface TrainingSession {
   session_id: string;
   user_id: string;
@@ -279,6 +331,11 @@ export const api = {
     );
     return data.programs ?? [];
   },
+
+  planRecommendations: (userId: string, limit = 6) =>
+    request<PlanRecommendationResponse>(
+      `/users/${encodeURIComponent(userId)}/plan-recommendations?limit=${limit}`
+    ),
 
   listSessions: async (userId: string) => {
     const data = await request<{ sessions: TrainingSession[] }>(

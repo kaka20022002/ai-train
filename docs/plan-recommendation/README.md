@@ -4,7 +4,7 @@
 
 训练计划推荐模块用于根据用户的训练目标、训练水平、训练频率、可用器材、伤病史和历史训练表现，从系统支持的计划模板中生成个性化 Top-K 推荐。
 
-用户可以从侧边栏进入「计划推荐」页面，查看：
+Web 端可以从侧边栏进入「计划推荐」页面；微信小程序可以从底部「计划」Tab 进入「计划推荐」。用户可以查看：
 
 - 每个计划的综合推荐分
 - 内容画像、历史行为和群体采用三个分项分数
@@ -14,11 +14,21 @@
 
 用户点击「采用此计划」后，系统会调用现有的周期计划生成流程，创建并启用新的训练计划，同时暂停原来的进行中计划。
 
-页面入口：
+Web 页面入口：
 
 ```text
 http://localhost:3000/recommendations
 ```
+
+微信小程序入口：
+
+```text
+底部「计划」Tab → 计划推荐
+```
+
+小程序推荐页预览：
+
+![小程序训练计划推荐页面](./miniprogram-preview.png)
 
 后端接口：
 
@@ -296,6 +306,9 @@ POST /programs/generate
 | `frontend/app/recommendations/page.tsx` | 推荐结果页面与采用流程 |
 | `frontend/components/Sidebar.tsx` | 侧边栏「计划推荐」入口 |
 | `frontend/lib/api.ts` | 前端推荐类型与 API 封装 |
+| `miniprogram/src/pages/recommendations/index.tsx` | 小程序推荐结果与采用流程 |
+| `miniprogram/src/pages/plans/index.tsx` | 小程序「计划推荐」入口 |
+| `miniprogram/src/services/api.ts` | 小程序推荐类型与 API 封装 |
 | `tests/test_plan_recommender.py` | 推荐算法单元测试 |
 | `tests/test_api_integration.py` | 推荐接口和计划采用集成测试 |
 

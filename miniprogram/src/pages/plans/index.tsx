@@ -73,10 +73,13 @@ export default function PlansPage() {
             <Text className="menu-text">风险分析</Text>
             <Text className="menu-hint">伤病与安全</Text>
           </View>
-          <View className="menu-item" onClick={() => Taro.switchTab({ url: "/pages/workout/index" })}>
-            <Text className="menu-icon">▶</Text>
-            <Text className="menu-text">今日训练</Text>
-            <Text className="menu-hint">立即开练</Text>
+          <View
+            className="menu-item recommend-entry"
+            onClick={() => Taro.navigateTo({ url: "/pages/recommendations/index" })}
+          >
+            <Text className="menu-icon">✦</Text>
+            <Text className="menu-text">计划推荐</Text>
+            <Text className="menu-hint">智能匹配</Text>
           </View>
         </View>
       </View>

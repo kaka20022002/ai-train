@@ -9,6 +9,7 @@ export default defineAppConfig({
     "pages/session/index",
     "pages/dashboard/index",
     "pages/generate/index",
+    "pages/recommendations/index",
     "pages/risk/index",
   ],
   window: {
