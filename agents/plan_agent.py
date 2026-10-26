@@ -75,6 +75,15 @@ class PlanAgent:
                 for eid in grammar.candidates(phase, exclude=used, rng=rng)
                 if grammar.impact_of(eid) <= min(spec["max_impact"], profile.impact_ceiling)
             ]
+            # 阶段内候选不足（禁忌 + 去重后剩太少）时，放宽该阶段的 impact 限制补满，
+            # 但绝不越过档案上限 —— 否则会出现「放松段只有 1 个动作」这类残缺计划。
+            if len(pool) < spec["count"]:
+                extra = [
+                    eid
+                    for eid in grammar.candidates(phase, exclude=used, rng=rng)
+                    if eid not in pool and grammar.impact_of(eid) <= profile.impact_ceiling
+                ]
+                pool.extend(extra)
             for eid in pool[: spec["count"]]:
                 picked.append(
                     Slot(

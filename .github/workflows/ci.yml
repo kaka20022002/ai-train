@@ -19,7 +19,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
-      - name: Run unit tests
+      - name: Run tests (unit + API integration)
         env:
           USE_REAL_LLM: "false"
-        run: pytest tests/ -q --ignore=tests/test_api_integration.py
+        run: pytest tests/ -q

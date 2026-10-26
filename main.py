@@ -46,6 +46,10 @@ from program_generator import ProgramGeneratorService
 from plan_program_sync import sync_plan_after_generation
 from history_analyzer import analyze_history
 
+# 三 Agent 计划生成管线（状态分析 → 计划生成 → 安全评估 + 风险条件约束解码）
+from agents import build_exercise_index, render_plan_draft, run_pipeline as run_agent_pipeline
+from agents.contracts import PHASES as AGENT_PHASES
+
 # Database layer
 from database import engine, get_db
 import models
@@ -239,6 +243,27 @@ class RiskAnalysisResponse(BaseModel):
     constraints: List[str]
 
 
+class SafetyViolationResponse(BaseModel):
+    """One constraint violation found by the safety-evaluation agent."""
+    code: str
+    exercise_id: int
+    phase: str
+    detail: str
+
+
+class SafetySummaryResponse(BaseModel):
+    """Safety conclusion returned alongside every generated plan."""
+    passed: bool
+    checked_slots: int
+    masked_count: int = Field(0, description="禁忌动作在候选池里被屏蔽的数量")
+    adversarial_probes: int = Field(0, description="对抗探针注入次数")
+    adversarial_blocked: int = Field(0, description="探测动作被拦下的次数")
+    profile_hash: str = ""
+    grammar_version: str = ""
+    rejected_ids: List[int] = Field(default_factory=list, description="生成阶段被白名单挡回的 ID")
+    violations: List[SafetyViolationResponse] = Field(default_factory=list)
+
+
 class GeneratePlanResponse(BaseModel):
     """Response body for the /generate_plan endpoint."""
     plan_id: str
@@ -254,6 +279,14 @@ class GeneratePlanResponse(BaseModel):
     program_id: Optional[str] = Field(
         None,
         description="When save_to_db=true, the training program created from this plan",
+    )
+    safety: Optional[SafetySummaryResponse] = Field(
+        None,
+        description="三 Agent 管线的安全评估结论（engine=agents 时返回）",
+    )
+    audit: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="逐条结构化审计记录：state_risk / plan_gen / safety_eval",
     )
 
 
@@ -458,6 +491,14 @@ async def generate_plan(
         le=30,
         description="Number of recent sessions to include in the history analysis (default 10)",
     ),
+    engine: str = Query(
+        "agents",
+        description=(
+            "计划生成引擎。agents（默认）= 三 Agent 管线，状态分析/计划生成/安全评估"
+            "彼此独立，并对候选动作施加风险条件约束解码；legacy = 旧的单步 mock 生成器，"
+            "仅用于对照实验与回退。"
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -532,19 +573,44 @@ async def generate_plan(
         if feedback_dict:
             constraints = risk_engine.analyze_dynamic_feedback(feedback_dict)
 
-        # Generate the workout plan (history_context passed through to LLM)
-        workout_plan = plan_generator.generate_plan(
-            user_profile=user_profile_dict,
-            feedback_input=feedback_dict,
-            workout_type=request.workout_type,
-            history_context=history_context,
-        )
+        # ── 生成计划：默认走三 Agent 管线，legacy 走旧单步生成器 ──────────
+        agent_result = None
+        if engine == "agents":
+            agent_result = run_agent_pipeline(
+                exercise_db=risk_engine.exercise_db,
+                user_profile=user_profile_dict,
+                feedback=feedback_dict,
+                workout_type=request.workout_type,
+            )
+            plan_export = render_plan_draft(
+                agent_result.draft,
+                build_exercise_index(risk_engine.exercise_db),
+                agent_result.profile,
+                agent_result.report,
+                fitness_level=str(user_profile_dict.get("fitness_level") or "beginner"),
+                workout_type=request.workout_type,
+            )
+            print(
+                f"   \U0001f9e9 Agents pipeline: {agent_result.draft.slot_count()} slots | "
+                f"allowed={len(agent_result.profile.allowed_ids)} "
+                f"forbidden={len(agent_result.profile.forbidden_reasons)} | "
+                f"safety_passed={agent_result.report.passed} | "
+                f"generator={plan_export['generator_version']}"
+            )
+        else:
+            # Generate the workout plan (history_context passed through to LLM)
+            workout_plan = plan_generator.generate_plan(
+                user_profile=user_profile_dict,
+                feedback_input=feedback_dict,
+                workout_type=request.workout_type,
+                history_context=history_context,
+            )
 
-        # Export plan as JSON (pass actual generator version)
-        plan_export = plan_generator.export_plan_as_json(
-            workout_plan,
-            generator_version=plan_generator.generator_version,
-        )
+            # Export plan as JSON (pass actual generator version)
+            plan_export = plan_generator.export_plan_as_json(
+                workout_plan,
+                generator_version=plan_generator.generator_version,
+            )
 
         # Augment safety_notes with history coaching summary (Phase 2)
         if history_summary:
@@ -572,7 +638,7 @@ async def generate_plan(
             crud.save_generated_plan(
                 db,
                 plan_export,
-                generator_version=plan_generator.generator_version,
+                generator_version=plan_export["generator_version"],
             )
             print(f"   💾 Plan '{plan_export['plan_id']}' saved to database.")
 
@@ -582,7 +648,7 @@ async def generate_plan(
                     plan_export,
                     user_profile_dict,
                     program_generator,
-                    plan_generator.generator_version,
+                    plan_export["generator_version"],
                     history_summary=history_summary,
                 )
                 print(
@@ -622,6 +688,25 @@ async def generate_plan(
             generated_at=plan_export["generated_at"],
             generator_version=plan_export["generator_version"],
             program_id=program_id,
+            safety=(
+                SafetySummaryResponse(
+                    passed=agent_result.report.passed,
+                    checked_slots=agent_result.report.checked_slots,
+                    masked_count=agent_result.report.masked_count,
+                    adversarial_probes=agent_result.report.adversarial_probes,
+                    adversarial_blocked=agent_result.report.adversarial_blocked,
+                    profile_hash=agent_result.profile.profile_hash,
+                    grammar_version=agent_result.draft.grammar_version,
+                    rejected_ids=list(agent_result.draft.rejected_ids),
+                    violations=[
+                        SafetyViolationResponse(**v.to_dict())
+                        for v in agent_result.report.violations
+                    ],
+                )
+                if agent_result
+                else None
+            ),
+            audit=agent_result.audit.entries if agent_result else None,
         )
 
         return response

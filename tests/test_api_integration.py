@@ -199,3 +199,65 @@ def test_plan_recommendation_can_be_adopted(client) -> None:
     )
     assert generate.status_code == 201, generate.text
     assert generate.json()["user_id"] == user_id
+
+# ── 三 Agent 管线接入 HTTP ──────────────────────────────────────────────────
+KNEE_HIGH_PAYLOAD = {
+    "user_profile": {
+        "user_id": "usr_api_agents",
+        "basic_info": {"age": 28, "gender": "male"},
+        "fitness_level": "beginner",
+        "medical_history": [
+            {"location": "knee", "condition": "meniscus_tear", "severity": "high"}
+        ],
+    },
+    "workout_type": "full_body",
+}
+
+
+def test_generate_plan_defaults_to_agents_pipeline(client) -> None:
+    """默认引擎必须是三 Agent 管线，并带回安全结论与审计链。"""
+    resp = client.post("/generate_plan", json=KNEE_HIGH_PAYLOAD)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    assert "+grammar/" in data["generator_version"]
+    safety = data["safety"]
+    assert safety is not None, "engine=agents 必须返回 safety"
+    assert safety["passed"] is True
+    assert safety["checked_slots"] > 0
+    assert safety["masked_count"] > 0
+    assert safety["adversarial_probes"] > 0
+    assert safety["adversarial_blocked"] == safety["adversarial_probes"]
+    assert safety["profile_hash"]
+
+    audit = data["audit"]
+    assert audit is not None
+    assert [e["stage"] for e in audit[:3]] == ["state_risk", "plan_gen", "safety_eval"]
+
+
+def test_agents_engine_never_leaks_forbidden_exercise(client) -> None:
+    resp = client.post("/generate_plan", json=KNEE_HIGH_PAYLOAD)
+    data = resp.json()
+    forbidden = {ex["name"] for ex in data["risk_analysis"]["forbidden_exercises"]}
+    planned = {ex["name"] for slots in data["phases"].values() for ex in slots}
+    assert forbidden, "膝伤 HIGH 应至少禁掉一个动作"
+    assert not (planned & forbidden)
+
+
+def test_agents_engine_fills_every_phase(client) -> None:
+    """每个阶段都要按处方填满，不能出现「放松段只有 1 个动作」。"""
+    resp = client.post("/generate_plan", json=KNEE_HIGH_PAYLOAD)
+    phases = resp.json()["phases"]
+    expected = {"warm_up": 3, "activation": 3, "main_lifts": 3, "accessories": 4, "cool_down": 3}
+    for phase, n in expected.items():
+        assert len(phases[phase]) == n, f"{phase} 只有 {len(phases[phase])} 个动作"
+
+
+def test_legacy_engine_still_available_for_comparison(client) -> None:
+    """engine=legacy 保留旧生成器，供对照实验与回退。"""
+    resp = client.post("/generate_plan?engine=legacy", json=KNEE_HIGH_PAYLOAD)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["generator_version"] in ("mock_v1.0", "mock_v1.0_fallback", "llm_v1.0")
+    assert data["safety"] is None
+    assert data["audit"] is None

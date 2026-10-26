@@ -27,6 +27,7 @@ from agents.contracts import (
 )
 from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
 from agents.pipeline import GenerationResult, PipelineAudit, run_pipeline
+from agents.render import build_safety_notes, render_plan_draft
 from agents.plan_agent import PlanAgent
 from agents.safety_agent import SafetyEvalAgent
 from agents.state_agent import StateRiskAgent
@@ -43,6 +44,8 @@ __all__ = [
     "GenerationResult",
     "PipelineAudit",
     "run_pipeline",
+    "render_plan_draft",
+    "build_safety_notes",
     "PlanAgent",
     "SafetyEvalAgent",
     "StateRiskAgent",
