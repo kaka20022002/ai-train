@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
-BASE = "http://127.0.0.1:8127"
+BASE = os.environ.get("AITRAIN_API", "http://127.0.0.1:8000")
 
 KNEE = {
     "user_profile": {

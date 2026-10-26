@@ -455,6 +455,8 @@ export { BASE as API_BASE };
 
 export interface PlanExercise {
   name: string;
+  /** 后端给出的中文名；缺省时前端回退到 EXERCISE_CN 映射表 */
+  name_zh?: string | null;
   sets: number;
   reps: string;
   rest_seconds: number;
@@ -537,7 +539,11 @@ export const riskApi = {
 export interface ExerciseRecord {
   id: number;
   name: string;
+  /** 后端权威中文名；缺省时前端回退到 EXERCISE_CN 映射表 */
+  name_zh?: string;
   type: string;
+  /** 适配的阶段：warm_up / activation / main_lifts / accessories / cool_down */
+  phase?: string[];
   target_muscle: string;
   involved_joints: string[];
   risk_level: number;
