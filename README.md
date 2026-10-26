@@ -305,6 +305,19 @@ python scripts/trace_stages.py --llm     # ③ 真模型跑一遍三阶段 + 会
 看模型到底改了什么。单元测试不受 `.env` 影响：`tests/conftest.py` 会钉住
 `USE_REAL_LLM=false`，跑 `pytest` 不会调用真实 API。
 
+最后打一次真实接口，确认 HTTP 层也通（约 1-2 分钟，含会审回路）：
+
+```bash
+uvicorn main:app --host 127.0.0.1 --port 8000
+curl -X POST http://127.0.0.1:8000/generate_plan \
+  -H "Content-Type: application/json" \
+  --data-binary @docs/request_llm_demo.json
+```
+
+`docs/request_llm_demo.json` 是一份**符合接口 schema**的样例：半月板术后 + 肩峰撞击、
+今日膝痛 3/10、RPE 8、需求「只有三十分钟想练下肢」。注意 `feedback` 里的
+`rpe` 与 `pain_feedback.has_pain` 是必填项，缺了直接 422。
+
 ## 命令行 Demo
 
 也可以直接运行计划生成 Demo：
