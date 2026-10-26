@@ -74,20 +74,38 @@ python main.py
 
 | Agent | prompt 版本 | 职责 | 接不上 LLM 时 |
 | --- | --- | --- | --- |
-| `state_risk` | `state_risk/1.0.0` | 读病历文本，**只能追加**约束 | 退回纯规则阈值表 |
-| `plan_gen` | `plan_gen/1.0.0` | 在已裁剪的候选集内选动作 | 退回确定性采样 |
-| `safety_eval` | `safety_eval/1.0.0` | 独立审查，只输出枚举违规码 | 退回纯谓词校验 |
+| `state_risk` | `state_risk/2.0.0` | 从病历自由文本抽取规则算不出的约束（模式禁忌、时长上限、容量判断） | 退回纯规则阈值表 |
+| `plan_gen` | `plan_gen/2.0.0` | **决定**选哪些动作、顺序、组数、次数、负荷、休息 | 退回确定性采样 + 处方推荐值 |
+| `safety_eval` | `safety_eval/2.0.0` | 独立审查，输出枚举违规码（含剂量合理性） | 退回纯谓词校验 |
 
-两点设计约束值得注意：
+### 权力结构：模型决策，规则兜底
 
-1. **合取验收**：`passed = rule_passed AND llm_passed`。接上 LLM 只会让判定更严，
-   永远不能放宽；LLM 通道超时或返回坏 JSON 时，判定退回规则结论而不是放行。
-2. **单向增强**：`state_risk` 的 LLM 建议只能让约束更紧（追加禁忌、下调关节上限）。
-   它提议移除禁忌或调高上限都会被丢弃 —— 上游一旦可被放宽，下游的合规性就不再可证。
+模块的分工不是「规则裁剪完让模型从剩下的里挑」，而是「模型自由决定，越界部分
+由规则夹紧」。区别在模型的实际自由度：
+
+| 维度 | 规则 | 模型 |
+| --- | --- | --- |
+| 哪些动作被禁止 | **独占**（阈值表 + 语义追加） | 只能追加，不能放宽 |
+| 组数 / 次数 / 负荷 | 给**区间**（`prescription_bounds`） | 在区间内**自行取值** |
+| 动作顺序 / 组合 | 只保证阶段归属 | **独占** |
+| 单动作要点 / 组间休息 | 只做默认值 | **独占** |
+| 验收判定 | 谓词校验（不可绕过） | 合取，只能加严 |
+
+三条不会被模型突破的线：
+
+1. **合取验收**：`passed = rule_passed AND llm_passed`。LLM 通道超时或返回坏
+   JSON 时，判定退回规则结论而不是放行。
+2. **参数夹紧**：模型给的组次负荷必须落在 `prescription_bounds()`
+   推导出的区间内（按动作类型 × 阶段），越界由 `PrescriptionBounds.clamp`
+   夹到边界并计入 `adjusted_slots`；ID 或阶段越界则直接进 `rejected_ids`。
+3. **约束单向**：`state_risk` 的追加类字段只能让约束更紧。但
+   `avoid_patterns` / `session_cap_minutes` 是规则没有的维度 —— 这正是
+   「让模型做规则做不到的事」，而不是让它把阈值表重算一遍。
 
 响应里 `safety.llm_verdict` / `safety.state_llm_status` / `generator_version`
-会显示三个 Agent 的实际后端，`audit` 数组逐条记录各自用的 prompt 版本，
-可直接用于对照实验（Mock vs LLM）。
+会显示三个 Agent 的实际后端，`safety.avoid_patterns` / `session_cap_minutes` /
+`adjusted_slots` 展示语义约束与越界程度，`audit` 数组逐条记录各自用的 prompt
+版本，可直接用于对照实验（Mock vs LLM）。
 
 ### 使用 OpenAI 模型（示例 GPT-4.1）
 

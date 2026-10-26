@@ -26,8 +26,14 @@ import random
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.contracts import PHASES, RiskProfile, Slot, Violation
+from agents.prescription import (
+    PrescriptionBounds,
+    is_bodyweight,
+    parse_reps,
+    prescription_bounds,
+)
 
-GRAMMAR_VERSION = "grammar/2.0.0"
+GRAMMAR_VERSION = "grammar/2.1.0"
 
 # 严重程度 → 该关节允许的最大 impact（与 RiskAssessmentEngine 阈值严格对齐）
 # HIGH   : risk_level >= 3 禁止 → 允许 <=2
@@ -100,9 +106,12 @@ class RiskGrammar:
         ``allow_fallback=True`` 时把其余允许动作追加在末尾，供候选不足时兜底 ——
         兜底也只在 ``allowed_ids`` 内部，禁忌动作永不出现在任何一档。
 
-        禁忌动作在此处已被物理移除。
+        三层裁剪依次生效：**档案禁忌**（``allowed_ids``）→ **模式禁忌**
+        （``avoid_patterns``，来自病历语义）→ **阶段归属**。禁忌动作在此处
+        已被物理移除。
         """
         banned = set(exclude)
+        avoid = set(self.profile.avoid_patterns)
         strict: List[int] = []
         fallback: List[int] = []
         for eid in self.allowed_ids:
@@ -110,6 +119,10 @@ class RiskGrammar:
                 continue
             meta = self.index.get(eid)
             if not meta:
+                continue
+            # 模式禁忌：整类动作模式被病历排除（如深屈膝），比逐个动作更粗、
+            # 也更能覆盖「规则表按关节映射时漏掉的同族动作」。
+            if avoid and str(meta.get("motion_pattern") or "").lower() in avoid:
                 continue
             phases = phases_of(meta)
             if phases:
@@ -122,6 +135,34 @@ class RiskGrammar:
             rng.shuffle(strict)
             rng.shuffle(fallback)
         return strict + fallback if allow_fallback else strict
+
+    def bounds(self, phase: str, exercise_id: int) -> PrescriptionBounds:
+        """该动作在该阶段的合法取值区间。"""
+        meta = self.index.get(int(exercise_id)) or {}
+        return prescription_bounds(phase, meta, self.profile.load_pct_cap)
+
+    def prescription_rules(self) -> List[Dict[str, Any]]:
+        """把各阶段候选归纳成「类型 → 区间」表，供模型参考取值。
+
+        只出现该阶段真实存在的类型，最多十几条，避免逐动作重复下发。
+        """
+        seen: Dict[Tuple[str, str, bool], Dict[str, Any]] = {}
+        for phase in PHASES:
+            for eid in self.phase_allowed_ids(phase):
+                meta = self.index.get(eid) or {}
+                etype = str(meta.get("type") or "Compound")
+                free = is_bodyweight(meta)
+                key = (phase, etype, free)
+                if key in seen:
+                    continue
+                b = prescription_bounds(phase, meta, self.profile.load_pct_cap)
+                seen[key] = {
+                    "phase": phase,
+                    "type": etype,
+                    "bodyweight": free,
+                    **b.to_dict(),
+                }
+        return list(seen.values())
 
     def phase_coverage(self, exclude: Sequence[int] = ()) -> Dict[str, int]:
         """各阶段严格候选数量 —— 用于诊断「某阶段是否被档案掏空」。"""
@@ -161,6 +202,32 @@ class RiskGrammar:
                 "LOAD_PCT", eid, phase,
                 f"load_pct={slot.load_pct} > {self.profile.load_pct_cap}",
             )
+        # 处方区间校验：模型有取值自由，但只能在区间内取。
+        # 阶段为空时无法确定区间（同一个动作在不同阶段区间不同），跳过。
+        if phase:
+            b = self.bounds(phase, eid)
+            if slot.sets < b.sets_min or slot.sets > b.sets_max:
+                return Violation(
+                    "PRESCRIPTION_RANGE", eid, phase,
+                    f"sets={slot.sets} 超出 [{b.sets_min},{b.sets_max}]",
+                )
+            low, high, unit = parse_reps(slot.reps, default_unit=b.unit)
+            if unit != b.unit or low < b.reps_min or high > b.reps_max:
+                return Violation(
+                    "PRESCRIPTION_RANGE", eid, phase,
+                    f"reps={slot.reps} 超出 [{b.reps_min},{b.reps_max}] {b.unit}",
+                )
+            if slot.load_pct is not None:
+                if b.load_max is None:
+                    return Violation(
+                        "PRESCRIPTION_RANGE", eid, phase,
+                        f"该动作不应标注负荷，却给了 load_pct={slot.load_pct}",
+                    )
+                if slot.load_pct < (b.load_min or 0) or slot.load_pct > b.load_max:
+                    return Violation(
+                        "PRESCRIPTION_RANGE", eid, phase,
+                        f"load_pct={slot.load_pct} 超出 [{b.load_min},{b.load_max}]",
+                    )
         return None
 
     def validate_draft_slots(self, slots: Sequence[Tuple[str, Slot]]) -> List[Violation]:

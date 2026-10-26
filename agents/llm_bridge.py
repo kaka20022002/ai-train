@@ -45,13 +45,16 @@ def _render_user_prompt(task: str, payload: Dict[str, Any]) -> str:
     """把结构化 payload 原样交给模型。
 
     刻意不做自然语言改写：Agent 之间传的本来就是结构化字段，
-    在这里"润色成一段话"会让模型有机会重新解释字段含义，
+    在这里「润色成一段话」会让模型有机会重新解释字段含义，
     反而破坏契约。
+
+    也不做 ``indent`` 缩进：候选表有七十多行，缩进会让 payload 膨胀近一倍，
+    而模型解析紧凑 JSON 与缩进 JSON 的能力没有差别。
     """
     return (
         f"【任务】{task}\n\n"
         "【输入数据】\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         + "\n\n请严格按下述 schema 返回一个 JSON 对象。"
     )
 

@@ -228,6 +228,10 @@ class ExerciseResponse(BaseModel):
     sets: int
     reps: str
     rest_seconds: int
+    load_pct: Optional[int] = Field(
+        None,
+        description="强度百分比（1RM 的百分比）。自重/弹力带动作与静态拉伸为 null。",
+    )
     notes: Optional[str] = None
     target_muscle: Optional[str] = None
 
@@ -285,6 +289,18 @@ class SafetySummaryResponse(BaseModel):
     llm_prompt_version: str = ""
     state_llm_status: str = Field(
         "", description="状态分析 Agent 的 LLM 状态：applied / empty / error / skipped"
+    )
+    # ── 病历语义抽取出的约束（规则表算不出来，只能由 Agent 1 给）──────────
+    avoid_patterns: List[str] = Field(
+        default_factory=list, description="需回避的动作模式（如 squat / lunge）"
+    )
+    session_cap_minutes: Optional[int] = Field(
+        None, description="单次训练时长上限（分钟）"
+    )
+    progression_note: str = Field("", description="进阶/退阶方向建议")
+    capacity_note: str = Field("", description="当前训练容量判断")
+    adjusted_slots: int = Field(
+        0, description="参数被夹进合法区间的槽位数（模型越界程度）"
     )
 
 
@@ -789,6 +805,11 @@ async def generate_plan(
                     llm_rationale=agent_result.report.llm_rationale,
                     llm_prompt_version=agent_result.report.llm_prompt_version,
                     state_llm_status=agent_result.profile.llm_status or "skipped",
+                    avoid_patterns=list(agent_result.profile.avoid_patterns),
+                    session_cap_minutes=agent_result.profile.session_cap_minutes,
+                    progression_note=agent_result.profile.progression_note,
+                    capacity_note=agent_result.profile.capacity_note,
+                    adjusted_slots=agent_result.draft.adjusted_slots,
                 )
                 if agent_result
                 else None

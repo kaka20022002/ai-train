@@ -93,7 +93,12 @@ def render_plan_draft(
     for phase in PHASES:
         for slot in draft.phases.get(phase, []):
             meta = exercise_index.get(slot.exercise_id, {})
-            rest = _rest_seconds(phase, fitness_level, meta)
+            # 模型给了休息时长就用模型的（它能按当日疲劳调整），没给才按阶段默认
+            rest = (
+                slot.rest_seconds
+                if slot.rest_seconds is not None
+                else _rest_seconds(phase, fitness_level, meta)
+            )
             item = {
                 "name": meta.get("name", f"Exercise #{slot.exercise_id}"),
                 "name_zh": meta.get("name_zh") or None,
@@ -103,6 +108,8 @@ def render_plan_draft(
                 "notes": _slot_note(phase, slot, meta, profile),
                 "target_muscle": meta.get("target_muscle") or "Multiple",
             }
+            if slot.load_pct is not None:
+                item["load_pct"] = slot.load_pct
             item["_seconds"] = _slot_seconds(item, meta)
             phases[phase].append(item)
 
@@ -125,9 +132,11 @@ def render_plan_draft(
 
 
 def _slot_note(phase: str, slot: Any, meta: Dict[str, Any], profile: RiskProfile) -> Optional[str]:
-    """给单条动作补一句上下文，只在确有信息时输出。"""
+    """给单条动作补一句上下文：模型给的要领在前，规则补的参数说明在后。"""
     pres = prescribe(phase, meta, profile.load_pct_cap)
     parts: List[str] = []
+    if getattr(slot, "note", ""):
+        parts.append(slot.note)
     if slot.load_pct is not None:
         parts.append(f"强度 {slot.load_pct}%")
     elif is_bodyweight(meta) and phase in ("main_lifts", "accessories"):
@@ -172,7 +181,18 @@ def build_safety_notes(
     if profile.load_pct_cap is not None:
         notes.append(f"📉 训练强度上限：{profile.load_pct_cap}%（由历史反馈动态收紧）")
 
+    if profile.avoid_patterns:
+        notes.append(f"⛔ 已回避动作模式：{'、'.join(profile.avoid_patterns)}")
+
+    if profile.session_cap_minutes:
+        notes.append(f"⏱️ 单次训练时长上限：{profile.session_cap_minutes} 分钟")
+
     if draft is not None and draft.rejected_ids:
         notes.append(f"🔍 生成阶段另有 {len(draft.rejected_ids)} 个动作被白名单挡回")
+
+    if draft is not None and draft.adjusted_slots:
+        notes.append(
+            f"🔧 另有 {draft.adjusted_slots} 个动作的组次负荷被夹进合法区间"
+        )
 
     return notes

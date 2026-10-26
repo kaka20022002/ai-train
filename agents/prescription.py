@@ -28,7 +28,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # 每个阶段要几个动作（数量属于「编排」，不是「处方」，所以留在这里但单独命名）
 PHASE_COUNT: Dict[str, int] = {
@@ -48,8 +48,10 @@ PHASE_MAX_IMPACT: Dict[str, int] = {
     "cool_down": 1,
 }
 
-# 只有自重/弹力带的动作不标注负荷百分比
-_FREE_EQUIPMENT = {"bodyweight", "band", "none", ""}
+# 只有自重/弹力带的动作不标注负荷百分比。
+# ``pull_up_bar`` 也算自重：引体向上、悬垂举腿靠身体重量，没有 1RM 可标 ——
+# 少了这一项，这两个动作会被标成「60% 强度」，与常识矛盾。
+_FREE_EQUIPMENT = {"bodyweight", "band", "none", "", "pull_up_bar"}
 
 
 @dataclass(frozen=True)
@@ -179,13 +181,224 @@ def prescribe_for_phase(
     }
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 处方区间 —— 让模型在合法范围内真正决定「做多少」
+# ══════════════════════════════════════════════════════════════════════
+#
+# ``prescribe`` 给的是「推荐值」，所有人一样；``prescription_bounds`` 给的是
+# **允许区间**，模型在区间内自行取值。两者不冲突：
+#
+#   - 模型可用 → 区间（模型决定 sets / reps / load，体现个体化与当日状态）
+#   - 模型不可用 → ``prescribe`` 的推荐值（确定性兜底，行为与旧版一致）
+#
+# 越界的取值不会被静默丢弃，而是由 ``clamp`` 夹到边界，并把「是否夹过」
+# 记进审计 —— 夹紧量本身就是「模型是否守规矩」的指标。
+
+# 动作类型 × 阶段 → (sets_min, sets_max, reps_min, reps_max, load_min, load_max)
+# reps 的单位由 ``timed`` 决定：True 为秒，False 为次。
+_BOUNDS: Dict[str, Dict[str, Tuple[int, int, int, int, Optional[int], Optional[int]]]] = {
+    "Stretch": {
+        "*": (1, 2, 20, 45, None, None),
+    },
+    "Warmup": {
+        "*": (1, 2, 8, 15, None, None),
+    },
+    "Isometric": {
+        "cool_down": (1, 2, 20, 45, None, None),
+        "*": (2, 4, 25, 60, None, None),
+    },
+    "Activation": {
+        "*": (2, 4, 10, 20, 20, 40),
+    },
+    "Compound": {
+        "main_lifts": (3, 5, 5, 10, 65, 85),
+        "accessories": (2, 4, 8, 15, 50, 70),
+        "*": (2, 3, 8, 15, 30, 50),
+    },
+    "Isolation": {
+        "cool_down": (1, 2, 20, 45, None, None),
+        "main_lifts": (2, 4, 8, 12, 50, 70),
+        "*": (2, 4, 8, 15, 40, 65),
+    },
+}
+
+# 自重主项的次数区间要更高：没有负重可用，只能靠次数与动作难度调强度
+_BODYWEIGHT_REPS_OVERRIDE: Dict[str, Tuple[int, int]] = {
+    "main_lifts": (8, 20),
+    "accessories": (10, 20),
+}
+
+
+@dataclass(frozen=True)
+class PrescriptionBounds:
+    """一个槽位的合法取值区间。"""
+
+    sets_min: int
+    sets_max: int
+    reps_min: int
+    reps_max: int
+    load_min: Optional[int]
+    load_max: Optional[int]
+    timed: bool
+    max_impact: int
+
+    @property
+    def unit(self) -> str:
+        return "秒" if self.timed else "次"
+
+    def clamp(
+        self, sets: Any, reps: str, load_pct: Any
+    ) -> Tuple[int, str, Optional[int], bool]:
+        """把模型给的取值夹进区间。
+
+        返回 ``(sets, reps, load_pct, clamped)``；``clamped=True`` 表示至少
+        有一项越界被夹紧，用于统计「模型自由度用到哪去了」。
+        """
+        clamped = False
+
+        try:
+            s = int(sets)
+        except (TypeError, ValueError):
+            s = self.sets_min
+            clamped = True
+        if s < self.sets_min or s > self.sets_max:
+            s = min(max(s, self.sets_min), self.sets_max)
+            clamped = True
+
+        low, high, unit = parse_reps(reps, default_unit=self.unit)
+        if unit != self.unit:
+            # 单位不符（把秒写成了次）时以区间为准重建
+            low = high = self.reps_min
+            clamped = True
+        new_low = min(max(low, self.reps_min), self.reps_max)
+        new_high = min(max(high, self.reps_min), self.reps_max)
+        if new_high < new_low:
+            new_high = new_low
+        if (new_low, new_high) != (low, high):
+            clamped = True
+
+        load: Optional[int] = None
+        if self.load_max is None:
+            # 该类动作不允许标注负荷，模型给了也丢掉
+            if load_pct is not None:
+                clamped = True
+        else:
+            try:
+                value = int(load_pct) if load_pct is not None else self.load_min
+            except (TypeError, ValueError):
+                value = self.load_min or 0
+                clamped = True
+            assert self.load_min is not None
+            if value < self.load_min or value > (self.load_max or value):
+                value = min(max(value, self.load_min), self.load_max)
+                clamped = True
+            load = value
+
+        return s, format_reps(new_low, new_high, self.unit), load, clamped
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "sets": [self.sets_min, self.sets_max],
+            "reps": [self.reps_min, self.reps_max],
+            "reps_unit": self.unit,
+            "load_pct": (
+                None
+                if self.load_max is None
+                else [self.load_min, self.load_max]
+            ),
+            "timed": self.timed,
+            "max_impact": self.max_impact,
+        }
+
+
+def prescription_bounds(
+    phase: str,
+    meta: Dict[str, Any],
+    load_cap: Optional[int] = None,
+) -> PrescriptionBounds:
+    """由动作类型与阶段推导允许区间。
+
+    与 ``prescribe`` 的差别：这里是**边界**，不是取值。确定性后端取推荐值，
+    LLM 后端在边界内自行取值。
+    """
+    etype = str(meta.get("type") or "Compound")
+    free = is_bodyweight(meta)
+    timed = etype in {"Stretch", "Isometric"} or bool(meta.get("is_timed"))
+    max_impact = PHASE_MAX_IMPACT.get(phase, 3)
+
+    table = _BOUNDS.get(etype) or _BOUNDS["Compound"]
+    raw = table.get(phase) or table.get("*") or _BOUNDS["Compound"]["*"]
+    sets_min, sets_max, reps_min, reps_max, load_min, load_max = raw
+
+    # 自重动作不标负荷百分比（俯卧撑没有 1RM）
+    if free:
+        load_min, load_max = None, None
+        override = _BODYWEIGHT_REPS_OVERRIDE.get(phase)
+        if override and etype == "Compound":
+            reps_min, reps_max = override
+
+    # 拉伸/等长在 cool_down 一律按秒计，其余按类型判断
+    if etype in {"Stretch", "Isometric"}:
+        timed = True
+    if timed:
+        # 计时动作的 reps 区间表示秒数，下界不能太小
+        reps_min = max(reps_min, 15)
+
+    if load_max is not None and load_cap is not None:
+        load_max = min(load_max, load_cap)
+        if load_min is not None:
+            load_min = min(load_min, load_max)
+
+    return PrescriptionBounds(
+        sets_min=sets_min,
+        sets_max=sets_max,
+        reps_min=reps_min,
+        reps_max=reps_max,
+        load_min=load_min,
+        load_max=load_max,
+        timed=timed,
+        max_impact=max_impact,
+    )
+
+
+def parse_reps(reps: Any, default_unit: str = "次") -> Tuple[int, int, str]:
+    """解析 "8-10 次" / "30 秒" / 12 为 ``(下界, 上界, 单位)``。"""
+    text = str(reps or "").strip()
+    unit = "秒" if ("秒" in text or "s" == text.lower()[-1:]) else default_unit
+    digits: List[int] = []
+    buf = ""
+    for ch in text:
+        if ch.isdigit():
+            buf += ch
+        elif buf:
+            digits.append(int(buf))
+            buf = ""
+    if buf:
+        digits.append(int(buf))
+    if not digits:
+        return 0, 0, unit
+    if len(digits) == 1:
+        return digits[0], digits[0], unit
+    return min(digits[0], digits[1]), max(digits[0], digits[1]), unit
+
+
+def format_reps(low: int, high: int, unit: str) -> str:
+    """``(8, 10, "次")`` → ``"8-10 次"``；上下界相同时省略区间。"""
+    body = f"{low}" if low == high else f"{low}-{high}"
+    return f"{body} {unit}"
+
+
 __all__ = [
     "PHASE_COUNT",
     "PHASE_MAX_IMPACT",
     "Prescription",
+    "PrescriptionBounds",
     "is_bodyweight",
     "prescribe",
     "prescribe_for_phase",
+    "prescription_bounds",
+    "parse_reps",
+    "format_reps",
     "phase_quota",
     "phase_impact_limit",
 ]

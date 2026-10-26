@@ -27,8 +27,18 @@ VIOLATION_CODES: Dict[str, str] = {
     "LOAD_PCT": "训练强度超过动态约束上限",
     "DUPLICATE": "同一阶段内动作重复",
     "STALE_PROFILE": "计划基于过期的风险档案生成",
+    "PRESCRIPTION_RANGE": "组数/次数/强度超出该动作的合法区间",
     "SEQUENCE": "阶段安排不合理（仅由 LLM 审查通道产出）",
+    "VOLUME": "总容量超出用户当前承受水平（仅由 LLM 审查通道产出）",
+    "INTENSITY": "强度与用户训练水平不匹配（仅由 LLM 审查通道产出）",
+    "RECOVERY": "恢复安排不足（仅由 LLM 审查通道产出）",
+    "CONTRAINDICATION": "病历明示但规则集未覆盖的禁忌（仅由 LLM 审查通道产出）",
 }
+
+# LLM 通道独有：规则层结构上判不出来的维度
+LLM_ONLY_CODES = frozenset(
+    {"SEQUENCE", "VOLUME", "INTENSITY", "RECOVERY", "CONTRAINDICATION"}
+)
 
 
 def _canonical(obj: Any) -> str:
@@ -37,13 +47,20 @@ def _canonical(obj: Any) -> str:
 
 @dataclass(frozen=True)
 class Slot:
-    """计划中的一个动作槽位 —— 跨 Agent 传递的最小单元。"""
+    """计划中的一个动作槽位 —— 跨 Agent 传递的最小单元。
+
+    前五个字段是不变量（``{exercise_id, sets, reps, load_pct, impact}``），
+    保证任何一份计划都能被谓词集直接校验；后两个是模型给出的**表达性**
+    字段（单动作要点、组间休息），不参与合规判定，只影响可读性与体验。
+    """
 
     exercise_id: int
     sets: int
     reps: str
     load_pct: Optional[int] = None
     impact: int = 1
+    note: str = ""
+    rest_seconds: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -52,16 +69,21 @@ class Slot:
             "reps": self.reps,
             "load_pct": self.load_pct,
             "impact": self.impact,
+            "note": self.note,
+            "rest_seconds": self.rest_seconds,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Slot":
+        rest = data.get("rest_seconds")
         return cls(
             exercise_id=int(data["exercise_id"]),
             sets=int(data.get("sets", 3)),
             reps=str(data.get("reps", "10")),
             load_pct=None if data.get("load_pct") is None else int(data["load_pct"]),
             impact=int(data.get("impact", 1)),
+            note=str(data.get("note") or ""),
+            rest_seconds=None if rest is None else int(rest),
         )
 
 
@@ -97,12 +119,18 @@ class RiskProfile:
     load_pct_cap: Optional[int]
     rules: Tuple[RuleSpec, ...] = ()
     profile_hash: str = ""
-    # ── LLM 增强通道的痕迹（仅供审计，不参与谓词判定）──────────────────────
+    # ── LLM 增强通道的痕迹（参与约束，但不来自阈值表）──────────────────────
     llm_forbidden: Tuple[int, ...] = ()      # LLM 追加的禁忌 ID（规则集之外）
     llm_joint_caps: Dict[str, int] = field(default_factory=dict)  # LLM 下调的关节上限
     llm_rationale: str = ""
     llm_status: str = ""                     # skipped | applied | empty | error
     llm_prompt_version: str = ""
+    # 规则表结构性算不出来的约束：来自病历自由文本的语义抽取
+    avoid_patterns: Tuple[str, ...] = ()     # 需回避的动作模式（如 deep_knee_flexion）
+    session_cap_minutes: Optional[int] = None  # 单次训练时长上限
+    progression_note: str = ""               # 进阶/退阶的整体方向说明
+    capacity_note: str = ""                  # 对当前训练容量的判断
+    fitness_level: str = ""                  # 训练水平（生成端定剂量时需要）
 
     def __post_init__(self) -> None:
         self.allowed_ids = tuple(sorted(int(i) for i in self.allowed_ids))
@@ -112,6 +140,9 @@ class RiskProfile:
         self.llm_joint_caps = {
             str(k): int(v) for k, v in (self.llm_joint_caps or {}).items()
         }
+        self.avoid_patterns = tuple(
+            sorted({str(p).strip().lower() for p in (self.avoid_patterns or ()) if str(p).strip()})
+        )
         if not self.profile_hash:
             self.profile_hash = self.compute_hash()
 
@@ -123,6 +154,8 @@ class RiskProfile:
             "joint_caps": self.joint_caps,
             "impact_ceiling": self.impact_ceiling,
             "load_pct_cap": self.load_pct_cap,
+            "avoid_patterns": list(self.avoid_patterns),
+            "session_cap_minutes": self.session_cap_minutes,
             "rules": [r.to_dict() for r in self.rules],
         }
         return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()[:16]
@@ -142,6 +175,10 @@ class RiskProfile:
             "llm_rationale": self.llm_rationale,
             "llm_status": self.llm_status,
             "llm_prompt_version": self.llm_prompt_version,
+            "avoid_patterns": list(self.avoid_patterns),
+            "session_cap_minutes": self.session_cap_minutes,
+            "progression_note": self.progression_note,
+            "capacity_note": self.capacity_note,
         }
 
 
@@ -158,6 +195,7 @@ class PlanDraft:
     prompt_version: str = ""
     profile_hash: str = ""
     rejected_ids: Tuple[int, ...] = ()   # 生成阶段被文法挡回的 ID（LLM 幻觉审计）
+    adjusted_slots: int = 0              # 参数被规则夹紧的槽位数（模型越界程度）
 
     def iter_slots(self) -> Iterable[Tuple[str, Slot]]:
         for phase in PHASES:
@@ -181,6 +219,7 @@ class PlanDraft:
             "prompt_version": self.prompt_version,
             "profile_hash": self.profile_hash,
             "rejected_ids": list(self.rejected_ids),
+            "adjusted_slots": self.adjusted_slots,
         }
 
     @classmethod
@@ -198,6 +237,7 @@ class PlanDraft:
             prompt_version=data.get("prompt_version", ""),
             profile_hash=data.get("profile_hash", ""),
             rejected_ids=tuple(int(i) for i in data.get("rejected_ids", []) or []),
+            adjusted_slots=int(data.get("adjusted_slots", 0) or 0),
         )
 
 

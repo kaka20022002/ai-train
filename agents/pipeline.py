@@ -102,11 +102,17 @@ def run_pipeline(
             "impact_ceiling": profile.impact_ceiling,
             "load_pct_cap": profile.load_pct_cap,
             "rules": len(profile.rules),
+            "avoid_patterns": list(profile.avoid_patterns),
+            "session_cap_minutes": profile.session_cap_minutes,
             "llm": {
                 "status": profile.llm_status or "skipped",
                 "prompt_version": profile.llm_prompt_version,
                 "appended_forbidden": list(profile.llm_forbidden),
                 "tightened_joint_caps": profile.llm_joint_caps,
+                "avoid_patterns": list(profile.avoid_patterns),
+                "session_cap_minutes": profile.session_cap_minutes,
+                "progression_note": profile.progression_note,
+                "capacity_note": profile.capacity_note,
                 "rationale": profile.llm_rationale,
             },
         },
@@ -130,6 +136,7 @@ def run_pipeline(
             "slots": draft.slot_count(),
             "ids": draft.all_ids(),
             "rejected_ids": list(draft.rejected_ids),
+            "adjusted_slots": draft.adjusted_slots,
         },
     )
 
@@ -208,6 +215,7 @@ def _repair(draft: PlanDraft, grammar: RiskGrammar, report: SafetyReport) -> Pla
         grammar_version=draft.grammar_version,
         prompt_version=draft.prompt_version,
         profile_hash=draft.profile_hash,
+        adjusted_slots=draft.adjusted_slots,
     )
 
 

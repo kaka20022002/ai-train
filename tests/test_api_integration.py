@@ -308,10 +308,20 @@ def test_agents_pipeline_uses_one_key_three_prompts(client, monkeypatch) -> None
             if "力量与体能教练" in system_prompt:
                 blob = user_prompt[user_prompt.index("{") : user_prompt.rindex("}") + 1]
                 payload = json.loads(blob)
-                picked: dict[str, list[dict[str, int]]] = {}
-                for phase, ids in payload["phase_candidates"].items():
-                    if ids:
-                        picked[phase] = [{"exercise_id": ids[0]}]
+                picked: dict[str, list[dict]] = {}
+                for phase, rows in payload["phase_candidates"].items():
+                    if rows:
+                        # 模拟模型给完整槽位（组次负荷 + 要点 + 休息）
+                        picked[phase] = [
+                            {
+                                "exercise_id": rows[0]["exercise_id"],
+                                "sets": 1,
+                                "reps": "30",
+                                "load_pct": None,
+                                "rest_seconds": 30,
+                                "note": f"模型选择 {rows[0]['name_zh']}",
+                            }
+                        ]
                 return picked
             if "运动医学筛查" in system_prompt:
                 return {"additional_forbidden": [], "rationale": "规则已覆盖"}
@@ -346,3 +356,74 @@ def test_agents_pipeline_uses_one_key_three_prompts(client, monkeypatch) -> None
     planned = {ex["name"] for slots in data["phases"].values() for ex in slots}
     assert forbidden
     assert not (planned & forbidden)
+
+
+def test_model_decisions_reach_the_response(client, monkeypatch) -> None:
+    """模型给出的组次负荷与动作要点，必须出现在最终响应里。
+
+    这是 v3「模型主决策」的接线验证：如果响应里的 sets/reps/notes 全是
+    处方模板值，说明模型输出在某一层被丢掉了。
+    """
+    import main
+    from agents import build_bridges
+
+    def fake_client():
+        class FakeClient:
+            def chat_json(self, system_prompt: str, user_prompt: str):
+                if "力量与体能教练" in system_prompt:
+                    blob = user_prompt[user_prompt.index("{") : user_prompt.rindex("}") + 1]
+                    payload = json.loads(blob)
+                    out: dict[str, list[dict]] = {}
+                    for phase, rows in payload["phase_candidates"].items():
+                        if not rows:
+                            continue
+                        row = rows[0]
+                        timed = bool(row.get("timed"))
+                        out[phase] = [
+                            {
+                                "exercise_id": row["exercise_id"],
+                                "sets": 2,
+                                "reps": "25" if timed else "9",
+                                "load_pct": None,
+                                "rest_seconds": 45,
+                                "note": f"模型提示：{row['name_zh']}",
+                            }
+                        ]
+                    return out
+                if "运动医学筛查" in system_prompt:
+                    return {
+                        "avoid_patterns": ["squat"],
+                        "session_cap_minutes": 45,
+                        "progression_note": "先恢复活动度",
+                        "rationale": "病历提到深蹲疼痛",
+                    }
+                if "独立的安全审查员" in system_prompt:
+                    return {"verdict": "pass", "violations": [], "rationale": "剂量保守"}
+                raise AssertionError(system_prompt[:40])
+
+        return FakeClient()
+
+    monkeypatch.setattr(main, "AGENT_BRIDGES", build_bridges(fake_client()))
+
+    resp = client.post("/generate_plan", json=KNEE_HIGH_PAYLOAD)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    safety = data["safety"]
+    # Agent 1 的语义抽取接到了响应
+    assert safety["avoid_patterns"] == ["squat"]
+    assert safety["session_cap_minutes"] == 45
+    assert "恢复活动度" in safety["progression_note"]
+    assert safety["state_llm_status"] == "applied"
+
+    # 模型的休息时长与要点接到了响应
+    warm = data["phases"]["warm_up"]
+    assert warm, "热身段不应为空"
+    assert warm[0]["rest_seconds"] == 45
+    assert warm[0]["notes"].startswith("模型提示：")
+
+    # 夹紧计数可见（模型给的值部分越界时会被记录）
+    assert isinstance(safety["adjusted_slots"], int)
+    # squat 模式被排除后，计划里不应再出现 squat 模式的深蹲类动作
+    names = {ex["name"] for slots in data["phases"].values() for ex in slots}
+    assert "Barbell Back Squat" not in names

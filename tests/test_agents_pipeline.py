@@ -45,8 +45,19 @@ HEALTHY = {
 
 # ── 契约 ────────────────────────────────────────────────────────────────────
 def test_slot_carries_only_structured_fields() -> None:
+    """跨 Agent 的槽位字段是封闭集合。
+
+    前五个是**决策字段**，参与谓词判定，任何一份计划都必须能被这五个字段
+    完整描述；后两个是**表达性字段**（模型给的单动作要点、组间休息），
+    不参与合规判定。除此之外不允许再往通道里塞东西 —— 这是「Agent 之间
+    只传结构化字段」的护栏。
+    """
+    decision = {"exercise_id", "sets", "reps", "load_pct", "impact"}
+    expressive = {"note", "rest_seconds"}
     slot = Slot(exercise_id=7, sets=3, reps="8-12", load_pct=70, impact=3)
-    assert set(slot.to_dict().keys()) == {"exercise_id", "sets", "reps", "load_pct", "impact"}
+    keys = set(slot.to_dict().keys())
+    assert decision <= keys
+    assert keys == decision | expressive
 
 
 def test_plan_draft_roundtrip() -> None:

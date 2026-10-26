@@ -195,7 +195,15 @@ class SafetyEvalAgent:
             "plan": {
                 "plan_id": draft.plan_id,
                 "workout_type": draft.workout_type,
+                "generator": draft.generator,
                 "phases": phases,
+            },
+            "user_context": {
+                "fitness_level": profile.fitness_level or "unknown",
+                "session_cap_minutes": profile.session_cap_minutes,
+                "avoid_patterns": list(profile.avoid_patterns),
+                "injury_joints": sorted(profile.joint_caps),
+                "llm_capacity_note": profile.capacity_note,
             },
             "constraints": {
                 "forbidden_exercises": [

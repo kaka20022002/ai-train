@@ -136,17 +136,25 @@ class StateRiskAgent:
             impact_ceiling=impact_ceiling,
             load_pct_cap=load_pct_cap,
             rules=tuple(rules),
+            fitness_level=str(user_profile.get("fitness_level") or ""),
         )
 
-    # ── LLM 单向增强 ──────────────────────────────────────────────────────
+    # ── LLM 增强 ──────────────────────────────────────────────────────────
     def _enhance(
         self,
         base: RiskProfile,
         user_profile: Dict[str, Any],
         feedback: Optional[Dict[str, Any]],
     ) -> RiskProfile:
-        if not base.joint_caps and not feedback:
-            # 无伤病、无异常反馈 —— 规则已是最宽松，没有可追加的余地
+        # 只有在「没有任何可读文本」时才跳过调用。
+        # 注意这里不再用 joint_caps 作条件：病历可能只写在 notes 里、结构化字段
+        # 没填（location/severity 缺失），那种情况规则算不出 joint_caps，
+        # 但恰恰是模型唯一能救的场景。
+        has_notes = any(
+            str(item.get("notes") or "").strip()
+            for item in (user_profile.get("medical_history") or [])
+        )
+        if not base.joint_caps and not feedback and not has_notes:
             return replace(base, llm_status="empty")
 
         payload = self._build_enhance_payload(base, user_profile, feedback)
@@ -176,20 +184,40 @@ class StateRiskAgent:
     ) -> Dict[str, Any]:
         injured = set(base.joint_caps)
         allowed_set = set(base.allowed_ids)
-        # 只发「涉及受伤关节」的允许动作：既压低 token，也避免模型在
-        # 与自己无关的动作上乱开枪。
-        scoped = [
-            {
+
+        def _row(ex: Dict[str, Any]) -> Dict[str, Any]:
+            return {
                 "exercise_id": int(ex["id"]),
                 "name": ex.get("name", ""),
+                "name_zh": ex.get("name_zh") or "",
                 "type": ex.get("type", ""),
+                "motion_pattern": ex.get("motion_pattern", ""),
                 "involved_joints": [str(j).lower() for j in ex.get("involved_joints", [])],
                 "risk_level": int(ex.get("risk_level", 1)),
             }
-            for ex in self.exercise_db
-            if int(ex["id"]) in allowed_set
-            and injured & {str(j).lower() for j in ex.get("involved_joints", [])}
-        ]
+
+        # 有明确伤情时只发「涉及受伤关节」的动作 —— 压低 token，也避免模型
+        # 在无关动作上乱开枪。只有当结构化字段缺失（只写了 notes）时才发全量，
+        # 因为此时规则没有任何线索，需要模型自己从文本里判断。
+        if injured:
+            scoped = [
+                _row(ex)
+                for ex in self.exercise_db
+                if int(ex["id"]) in allowed_set
+                and injured & {str(j).lower() for j in ex.get("involved_joints", [])}
+            ]
+        else:
+            scoped = [_row(ex) for ex in self.exercise_db if int(ex["id"]) in allowed_set]
+
+        # 动作模式词表：模型只能从这里挑 avoid_patterns，否则下游无法消费
+        patterns = sorted(
+            {
+                str(ex.get("motion_pattern") or "").lower()
+                for ex in self.exercise_db
+                if ex.get("motion_pattern")
+            }
+        )
+
         return {
             "user_profile": {
                 "user_id": user_profile.get("user_id"),
@@ -208,6 +236,7 @@ class StateRiskAgent:
                 ],
             },
             "allowed_exercises": scoped,
+            "available_motion_patterns": patterns,
         }
 
     def _merge_enhancement(
@@ -259,8 +288,29 @@ class StateRiskAgent:
 
         rationale = str(raw.get("rationale") or "")[:400]
 
+        # 模式禁忌：模型只能从动作库真实存在的模式里选，否则下游过滤不掉
+        vocab = {
+            str(ex.get("motion_pattern") or "").lower()
+            for ex in self.exercise_db
+            if ex.get("motion_pattern")
+        }
+        avoid: List[str] = []
+        for p in raw.get("avoid_patterns") or []:
+            key = str(p).strip().lower()
+            if key in vocab and key not in avoid:
+                avoid.append(key)
+
+        session_cap: Optional[int] = None
+        raw_cap = raw.get("session_cap_minutes")
+        if isinstance(raw_cap, (int, float)) and not isinstance(raw_cap, bool):
+            session_cap = min(max(int(raw_cap), 15), 120)
+
+        progression = str(raw.get("progression_note") or "").strip()[:200]
+        capacity = str(raw.get("capacity_note") or "").strip()[:200]
+
         if not added and joint_caps == base.joint_caps and ceiling == base.impact_ceiling \
-                and load_cap == base.load_pct_cap:
+                and load_cap == base.load_pct_cap and not avoid \
+                and session_cap is None and not progression and not capacity:
             return replace(
                 base,
                 llm_status="empty",
@@ -284,6 +334,14 @@ class StateRiskAgent:
             rules.append(RuleSpec("llm_impact_ceiling", "impact_ceiling", "*", ceiling, "llm:feedback"))
         if load_cap != base.load_pct_cap:
             rules.append(RuleSpec("llm_load_pct", "load_pct", "*", load_cap or 0, "llm:feedback"))
+        for p in avoid:
+            rules.append(
+                RuleSpec(f"llm_avoid_pattern:{p}", "avoid_pattern", p, 0, "llm:medical_text")
+            )
+        if session_cap is not None:
+            rules.append(
+                RuleSpec("llm_session_cap", "session_cap", "*", session_cap, "llm:feedback")
+            )
 
         # profile_hash 必须重算：约束集变了，旧 hash 会让下游的
         # STALE_PROFILE 检查失去意义。
@@ -295,11 +353,16 @@ class StateRiskAgent:
             impact_ceiling=ceiling,
             load_pct_cap=load_cap,
             rules=tuple(rules),
+            fitness_level=base.fitness_level,
             llm_forbidden=tuple(added),
             llm_joint_caps={j: v for j, v in joint_caps.items() if base.joint_caps.get(j) != v},
             llm_rationale=rationale,
             llm_status="applied",
             llm_prompt_version=STATE_RISK_PROMPT_VERSION,
+            avoid_patterns=tuple(avoid),
+            session_cap_minutes=session_cap,
+            progression_note=progression,
+            capacity_note=capacity,
         )
 
     # ── 内部 ──────────────────────────────────────────────────────────────
