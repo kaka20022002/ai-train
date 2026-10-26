@@ -52,6 +52,7 @@ import models
 import crud
 from routers.users import router as users_router
 from routers.programs import router as programs_router
+from routers.recommendations import router as recommendations_router
 from routers.chat import router as chat_router
 from routers.insights import router as insights_router
 from routers.auth import router as auth_router
@@ -349,6 +350,8 @@ app.add_middleware(
 app.include_router(users_router)
 # Mount Phase 3 program routes
 app.include_router(programs_router)
+# Mount training-plan recommendation routes
+app.include_router(recommendations_router)
 # Mount Phase 4 AI coach chat routes
 app.include_router(chat_router)
 # Mount Sprint 4 insights (readiness + progression) routes

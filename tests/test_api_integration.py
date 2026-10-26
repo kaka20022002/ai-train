@@ -153,3 +153,49 @@ def test_user_update_medical_history_triggers_revalidation(client, db_session) -
     assert weeks
     ex_name = weeks[0]["sessions"][0]["key_exercises"][0]["name"]
     assert ex_name != bad
+
+
+def test_plan_recommendation_can_be_adopted(client) -> None:
+    user_id = "usr_api_recommend"
+    profile = {
+        "user_id": user_id,
+        "basic_info": {"age": 29, "gender": "female"},
+        "fitness_level": "intermediate",
+        "fitness_goal": "strength",
+        "training_frequency": 4,
+        "available_equipment": [],
+        "medical_history": [
+            {
+                "location": "knee",
+                "condition": "meniscus_tear",
+                "severity": "high",
+            }
+        ],
+    }
+    create = client.post("/users", json=profile)
+    assert create.status_code == 201, create.text
+
+    recommendation = client.get(f"/users/{user_id}/plan-recommendations?limit=3")
+    assert recommendation.status_code == 200, recommendation.text
+    data = recommendation.json()
+    assert data["user_snapshot"]["goal"] == "strength"
+    assert len(data["recommendations"]) == 3
+
+    best = data["recommendations"][0]
+    assert best["goal"] == "strength"
+    assert 0 <= best["score"] <= 100
+    assert best["match_reasons"]
+
+    generate = client.post(
+        "/programs/generate",
+        json={
+            "user_profile": profile,
+            "goal": best["goal"],
+            "total_weeks": best["total_weeks"],
+            "sessions_per_week": best["sessions_per_week"],
+            "split_type": best["split_type"],
+            "use_history": False,
+        },
+    )
+    assert generate.status_code == 201, generate.text
+    assert generate.json()["user_id"] == user_id

@@ -13,6 +13,7 @@ import {
   BookOpen,
   PlayCircle,
   MessageCircle,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ const NAV = [
   { href: "/workout", icon: PlayCircle, label: "今日训练" },
   { href: "/", icon: LayoutDashboard, label: "仪表盘" },
   { href: "/generate", icon: ClipboardList, label: "生成计划" },
+  { href: "/recommendations", icon: Sparkles, label: "计划推荐" },
   { href: "/programs", icon: CalendarDays, label: "周期计划" },
   { href: "/risk", icon: ShieldAlert, label: "风险分析" },
   { href: "/exercises", icon: BookOpen, label: "动作库" },

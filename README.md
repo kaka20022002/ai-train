@@ -13,12 +13,16 @@
    提供 `/generate_plan`、`/analyze_risk`、`/exercises` 等 REST 接口。
 4. **微信小程序（Taro）** — 目录 `miniprogram/`  
    今日训练 / AI 教练 / 计划 / 我的；详见 [`miniprogram/README.md`](miniprogram/README.md)。
+5. **训练计划推荐** — 基于用户档案、训练历史、器材和伤病条件生成个性化计划排序。
+   详见 [`docs/plan-recommendation/README.md`](docs/plan-recommendation/README.md)。
 
 ## 协作开发
 
 其他人加入项目请先读：**[协作开发指南](docs/协作开发指南.md)**（克隆、环境、分支、PR、真机联调、模块边界）。
 
 组会演示请看：**[组会演示清单](docs/组会演示清单.md)**。
+
+训练计划推荐模块说明：**[计划推荐 README](docs/plan-recommendation/README.md)**。
 
 正式微信小程序 AppID（真机/发布）：**[微信 AppID 申请与接入](docs/微信AppID申请与接入.md)**。
 
