@@ -66,6 +66,24 @@ npm run dev:weapp
 `src/utils/config.ts` 中的 `API_BASE` 改成手机可访问的电脑局域网 IP，
 并在开发者工具中勾选「不校验合法域名」；正式发布时需使用已备案的 HTTPS 域名。
 
+## 没有开发者工具？先跑 H5 版看界面
+
+同一套 Taro 代码可以编译成网页，界面与小程序一致（少了微信登录、录音、真机手势）：
+
+```bash
+cd miniprogram
+npm install
+npm run build:h5          # 产物在 dist/
+npx serve dist -l 5178    # 或任意静态服务器
+```
+
+浏览器开 `http://127.0.0.1:5178`，数据来自本地后端 `http://localhost:8000`
+（`src/utils/config.ts` 里的 `API_BASE`）。后端 CORS 已放开 `*`，不用额外配置。
+
+> `build:h5` 依赖 `@tarojs/plugin-platform-h5`，已写进 devDependencies。
+> 首次 `npm install` 若在 Windows 报 `esbuild EBUSY`，忽略即可 —— 包本身已装好，
+> 直接继续 `build:h5`。
+
 默认 `project.config.json` 使用游客 `touristappid`。申请正式 AppID 并写入配置见仓库文档：
 
 [`docs/微信AppID申请与接入.md`](../docs/微信AppID申请与接入.md)
