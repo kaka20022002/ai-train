@@ -64,6 +64,7 @@ def run_pipeline(
     user_profile: Dict[str, Any],
     feedback: Optional[Dict[str, Any]] = None,
     workout_type: str = "full_body",
+    query: Optional[str] = None,
     plan_agent: Optional[PlanAgent] = None,
     state_agent: Optional[StateRiskAgent] = None,
     safety_agent: Optional[SafetyEvalAgent] = None,
@@ -83,7 +84,9 @@ def run_pipeline(
 
     # ── Stage 1：状态与风险分析 ───────────────────────────────────────────
     state_agent = state_agent or StateRiskAgent(exercise_db)
-    profile = state_agent.analyze(user_profile, feedback)
+    profile = state_agent.analyze(
+        user_profile, feedback, workout_type=workout_type, query=query
+    )
     SafetyEvalAgent.assert_grammar_invariant(profile)
 
     grammar = compile_risk_grammar(profile, index)
@@ -93,6 +96,8 @@ def run_pipeline(
             "user_id": profile.user_id,
             "injury_joints": sorted(profile.joint_caps),
             "feedback_keys": sorted((feedback or {}).keys()),
+            "workout_type": workout_type,
+            "query": (query or "")[:200],
         },
         {
             "profile_hash": profile.profile_hash,
@@ -102,6 +107,10 @@ def run_pipeline(
             "impact_ceiling": profile.impact_ceiling,
             "load_pct_cap": profile.load_pct_cap,
             "rules": len(profile.rules),
+            "equipment_blocked": sum(
+                1 for r in profile.forbidden_reasons.values() if r.startswith("EQUIPMENT")
+            ),
+            "user_context": dict(profile.user_context or {}),
             "avoid_patterns": list(profile.avoid_patterns),
             "session_cap_minutes": profile.session_cap_minutes,
             "llm": {

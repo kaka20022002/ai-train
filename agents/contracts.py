@@ -131,6 +131,10 @@ class RiskProfile:
     progression_note: str = ""               # 进阶/退阶的整体方向说明
     capacity_note: str = ""                  # 对当前训练容量的判断
     fitness_level: str = ""                  # 训练水平（生成端定剂量时需要）
+    # ── 用户上下文透传（不参与合规判定，但生成端必须看到）──────────────────
+    # 结构化字段：目标、器械、偏好、本次需求。故意不进 profile_hash：
+    # 换目标或换器械不会让已生成的计划变得「过期」，合规性也不因此改变。
+    user_context: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.allowed_ids = tuple(sorted(int(i) for i in self.allowed_ids))
@@ -179,6 +183,7 @@ class RiskProfile:
             "session_cap_minutes": self.session_cap_minutes,
             "progression_note": self.progression_note,
             "capacity_note": self.capacity_note,
+            "user_context": dict(self.user_context),
         }
 
 

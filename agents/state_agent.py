@@ -65,11 +65,23 @@ class StateRiskAgent:
         self,
         user_profile: Dict[str, Any],
         feedback: Optional[Dict[str, Any]] = None,
+        workout_type: str = "full_body",
+        query: Optional[str] = None,
     ) -> RiskProfile:
-        profile = self._analyze_rules(user_profile, feedback)
+        """规则算基线 → 组装用户上下文 →（可选）LLM 语义补充。
+
+        ``workout_type`` 与 ``query`` 会一并进入上下文：同样是膝伤，
+        「今天练腿」和「今天练上肢」的风险权重完全不同，模型需要知道
+        这一次要练什么，而不只是知道用户有什么伤。
+        """
+        base = self._analyze_rules(user_profile, feedback)
+        base = replace(
+            base,
+            user_context=self._build_user_context(user_profile, workout_type, query),
+        )
         if self._llm_enhance_fn is None:
-            return replace(profile, llm_status="skipped")
-        return self._enhance(profile, user_profile, feedback)
+            return replace(base, llm_status="skipped")
+        return self._enhance(base, user_profile, feedback)
 
     # ── 规则后端（唯一的下限来源）─────────────────────────────────────────
     def _analyze_rules(
@@ -80,7 +92,19 @@ class StateRiskAgent:
         user_id = str(user_profile.get("user_id", "unknown"))
         joint_severity = self._injury_map(user_profile)
 
-        forbidden: Dict[int, str] = {}
+        # ① 器械不可达 —— 硬约束，与伤情禁忌同级
+        #    「没有杠铃」和「膝伤不能深蹲」在执行层面是同一件事：动作做不了。
+        #    放在规则层而不是交给模型，因为这是可判定事实，不需要推理。
+        equipment = self._build_equipment_set(user_profile.get("available_equipment"))
+        gear_blocked: Dict[int, str] = {}
+        if equipment is not None:
+            for ex in self.exercise_db:
+                need = [str(e).lower() for e in (ex.get("required_equipment") or []) if e]
+                missing = [e for e in need if e not in equipment]
+                if missing:
+                    gear_blocked[int(ex["id"])] = f"EQUIPMENT_MISSING:{missing[0]}"
+
+        forbidden: Dict[int, str] = dict(gear_blocked)
         for ex in self.exercise_db:
             eid = int(ex["id"])
             risk_level = int(ex.get("risk_level", 1))
@@ -89,6 +113,7 @@ class StateRiskAgent:
                     continue
                 threshold = SEVERITY_THRESHOLD.get(severity, 5)
                 if risk_level >= threshold:
+                    # 伤情原因覆盖器械原因：前者更需要被用户看到
                     forbidden[eid] = f"SEVERITY_{severity.upper()}:{joint}"
                     break
 
@@ -126,6 +151,10 @@ class StateRiskAgent:
         rules.append(
             RuleSpec("impact_ceiling", "impact_ceiling", "*", impact_ceiling, "static")
         )
+        if gear_blocked:
+            rules.append(
+                RuleSpec("equipment_filter", "equipment", "*", len(gear_blocked), "static:gear")
+            )
         rules.extend(dynamic_rules)
 
         return RiskProfile(
@@ -154,7 +183,13 @@ class StateRiskAgent:
             str(item.get("notes") or "").strip()
             for item in (user_profile.get("medical_history") or [])
         )
-        if not base.joint_caps and not feedback and not has_notes:
+        # 本次需求原话与偏好备注同样可能带症状或时间限制
+        # （「今天只有半小时」「最近腰有点紧」），都算可读文本。
+        ctx = base.user_context or {}
+        has_request_text = bool(str(ctx.get("query") or "").strip())
+        has_pref_text = bool(str((ctx.get("preferences") or {}).get("notes") or "").strip())
+        if not base.joint_caps and not feedback and not has_notes \
+                and not has_request_text and not has_pref_text:
             return replace(base, llm_status="empty")
 
         payload = self._build_enhance_payload(base, user_profile, feedback)
@@ -218,12 +253,25 @@ class StateRiskAgent:
             }
         )
 
+        ctx = base.user_context or {}
         return {
+            # 完整原始档案 —— 不再只挑四个字段。
+            # 目标（fitness_goal）、器械、偏好、本次需求都会影响风险判断：
+            # 「想练力量」会把负荷顶到上限，「没有杠铃」和「膝伤」一样是硬约束。
             "user_profile": {
                 "user_id": user_profile.get("user_id"),
-                "age": user_profile.get("age"),
+                "basic_info": dict(ctx.get("basic_info") or {}),
                 "fitness_level": user_profile.get("fitness_level"),
+                "fitness_goal": ctx.get("fitness_goal"),
+                "training_frequency": ctx.get("training_frequency"),
+                "available_equipment": ctx.get("available_equipment") or [],
+                "preferences": ctx.get("preferences") or {},
+                # 病历全文：location / condition / severity / pain_trigger / notes
                 "medical_history": user_profile.get("medical_history") or [],
+            },
+            "current_request": {
+                "workout_type": ctx.get("workout_type") or "full_body",
+                "query": ctx.get("query") or "",
             },
             "recent_feedback": feedback or {},
             "rule_engine_output": {
@@ -234,6 +282,9 @@ class StateRiskAgent:
                     {"exercise_id": eid, "reason": reason}
                     for eid, reason in sorted(base.forbidden_reasons.items())
                 ],
+                "equipment_filtered": sum(
+                    1 for r in base.forbidden_reasons.values() if r.startswith("EQUIPMENT_MISSING")
+                ),
             },
             "allowed_exercises": scoped,
             "available_motion_patterns": patterns,
@@ -363,9 +414,72 @@ class StateRiskAgent:
             session_cap_minutes=session_cap,
             progression_note=progression,
             capacity_note=capacity,
+            user_context=dict(base.user_context or {}),
         )
 
     # ── 内部 ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _build_equipment_set(available: Optional[Sequence[Any]]) -> Optional[set]:
+        """把用户器械归一成查表集合。
+
+        ``None`` 表示「没填 → 不限制」（与 risk_engine 语义一致）；
+        自重永远可用，否则没列 bodyweight 的用户会被判成连俯卧撑都做不了。
+        """
+        if not available:
+            return None
+        gear = {str(e).strip().lower() for e in available if str(e).strip()}
+        if not gear:
+            return None
+        gear.add("bodyweight")
+        return gear
+
+    @staticmethod
+    def _build_user_context(
+        user_profile: Dict[str, Any],
+        workout_type: str,
+        query: Optional[str],
+    ) -> Dict[str, Any]:
+        """组装透传给下游的完整用户上下文（不含任何约束判断）。
+
+        这里刻意把**原始输入全部保留**：目标、频率、器械、偏好、本次需求原话。
+        之前只挑了四个字段下发，导致「没有杠铃」和「想练力量」这两件
+        直接决定处方的信息在 Agent 之间整段丢失。
+        """
+        prefs = user_profile.get("preferences") or {}
+        if hasattr(prefs, "model_dump"):
+            prefs = prefs.model_dump()
+        if not isinstance(prefs, dict):
+            prefs = {}
+
+        def _clean_list(value: Any) -> List[str]:
+            if isinstance(value, str):
+                value = [value]
+            if not isinstance(value, (list, tuple)):
+                return []
+            return [str(v).strip() for v in value if str(v).strip()]
+
+        context: Dict[str, Any] = {
+            "basic_info": dict(user_profile.get("basic_info") or {}),
+            "fitness_level": str(user_profile.get("fitness_level") or ""),
+            "fitness_goal": user_profile.get("fitness_goal") or None,
+            "training_frequency": user_profile.get("training_frequency") or None,
+            "available_equipment": _clean_list(user_profile.get("available_equipment")),
+            "workout_type": workout_type,
+            "query": str(query or "").strip(),
+        }
+
+        cleaned_prefs: Dict[str, Any] = {}
+        for key in ("liked_patterns", "disliked_patterns", "disliked_exercises"):
+            values = _clean_list(prefs.get(key))
+            if values:
+                cleaned_prefs[key] = values
+        note = str(prefs.get("notes") or "").strip()
+        if note:
+            cleaned_prefs["notes"] = note
+        if cleaned_prefs:
+            context["preferences"] = cleaned_prefs
+        return context
+
     @staticmethod
     def _injury_map(user_profile: Dict[str, Any]) -> Dict[str, str]:
         out: Dict[str, str] = {}

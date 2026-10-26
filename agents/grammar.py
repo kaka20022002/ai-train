@@ -26,6 +26,11 @@ import random
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.contracts import PHASES, RiskProfile, Slot, Violation
+from agents.focus import (
+    FOCUS_EXEMPT_PHASES,
+    normalize_workout_type,
+    resolve_focus,
+)
 from agents.prescription import (
     PrescriptionBounds,
     is_bodyweight,
@@ -33,7 +38,7 @@ from agents.prescription import (
     prescription_bounds,
 )
 
-GRAMMAR_VERSION = "grammar/2.1.0"
+GRAMMAR_VERSION = "grammar/2.2.0"
 
 # 严重程度 → 该关节允许的最大 impact（与 RiskAssessmentEngine 阈值严格对齐）
 # HIGH   : risk_level >= 3 禁止 → 允许 <=2
@@ -81,6 +86,14 @@ class RiskGrammar:
         self.allowed_ids: Tuple[int, ...] = profile.allowed_ids
         self._allowed_set = frozenset(self.allowed_ids)
 
+        # 部位定向：把 workout_type 变成候选集的物理范围。
+        # 与 allow 集取交集 —— 部位范围不能成为越过禁忌的通道。
+        self.focus = normalize_workout_type((profile.user_context or {}).get("workout_type"))
+        scoped = resolve_focus(self.focus, exercise_index)
+        self.focus_ids: Optional[frozenset] = (
+            None if scoped is None else frozenset(scoped) & self._allowed_set
+        )
+
     # ── 候选集 ────────────────────────────────────────────────────────────
     def is_allowed(self, exercise_id: int) -> bool:
         return int(exercise_id) in self._allowed_set
@@ -107,11 +120,16 @@ class RiskGrammar:
         兜底也只在 ``allowed_ids`` 内部，禁忌动作永不出现在任何一档。
 
         三层裁剪依次生效：**档案禁忌**（``allowed_ids``）→ **模式禁忌**
-        （``avoid_patterns``，来自病历语义）→ **阶段归属**。禁忌动作在此处
-        已被物理移除。
+        （``avoid_patterns``，来自病历语义）→ **部位定向**
+        （``workout_type``）→ **阶段归属**。禁忌动作在此处已被物理移除。
+
+        ``allow_fallback`` 只接受「类型与目标阶段偏好相容」的动作：
+        宁可少一个动作，也不把热身或拉伸塞进主项段。
         """
         banned = set(exclude)
         avoid = set(self.profile.avoid_patterns)
+        apply_focus = self.focus_ids is not None and phase not in FOCUS_EXEMPT_PHASES
+        desired_types = PHASE_PREFERRED_TYPES.get(phase, ())
         strict: List[int] = []
         fallback: List[int] = []
         for eid in self.allowed_ids:
@@ -124,12 +142,18 @@ class RiskGrammar:
             # 也更能覆盖「规则表按关节映射时漏掉的同族动作」。
             if avoid and str(meta.get("motion_pattern") or "").lower() in avoid:
                 continue
+            # 部位定向：练腿日看不到上肢动作（热身/放松阶段豁免）
+            if apply_focus and eid not in self.focus_ids:  # type: ignore[operator]
+                continue
             phases = phases_of(meta)
             if phases:
                 in_phase = phase in phases
             else:
-                in_phase = meta.get("type") in PHASE_PREFERRED_TYPES.get(phase, ())
-            (strict if in_phase else fallback).append(eid)
+                in_phase = meta.get("type") in desired_types
+            if in_phase:
+                strict.append(eid)
+            elif allow_fallback and (not phases or meta.get("type") in desired_types):
+                fallback.append(eid)
 
         if rng is not None:
             rng.shuffle(strict)
@@ -242,11 +266,17 @@ class RiskGrammar:
     def phase_allowed_ids(self, phase: str) -> Tuple[int, ...]:
         """该阶段的可解码 ID 集合。
 
-        严格候选为空时退回全局允许集 —— enum 不能是空数组（schema 非法），
-        而退回的仍然是 ``allowed_ids``，禁忌动作依旧不可能出现。
+        严格候选为空时退回「允许集 ∩ 部位范围」—— enum 不能是空数组
+        （schema 非法），而退回的仍然是 ``allowed_ids`` 的子集，
+        禁忌动作依旧不可能出现。
         """
         ids = self.candidates(phase)
-        return tuple(ids) if ids else self.allowed_ids
+        if ids:
+            return tuple(ids)
+        if self.focus_ids is None or phase in FOCUS_EXEMPT_PHASES:
+            return self.allowed_ids
+        scoped = tuple(i for i in self.allowed_ids if i in self.focus_ids)
+        return scoped or self.allowed_ids
 
     def slot_schema(self, phase: Optional[str] = None) -> Dict[str, Any]:
         ids = self.phase_allowed_ids(phase) if phase else self.allowed_ids

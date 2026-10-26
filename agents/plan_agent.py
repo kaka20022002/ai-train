@@ -145,7 +145,49 @@ class PlanAgent:
                 for eid in loose
                 if eid not in pool and grammar.impact_of(eid) <= ceiling
             ]
-        return pool
+        return self._apply_preferences(pool, profile, grammar.index)
+
+    @staticmethod
+    def _apply_preferences(
+        pool: List[int],
+        profile: RiskProfile,
+        index: Dict[int, Dict[str, Any]],
+    ) -> List[int]:
+        """偏好软约束：候选充足时排除不喜欢的，全被讨厌时才妥协。
+
+        规则后端没有模型那样的权衡能力，只能靠这条规则近似：
+        明确不想做的动作不进候选池；只有当整个池子都是不喜欢的动作时
+        才保留它们（否则阶段会空掉，那是更严重的问题）。
+        加这一步是为了让「兴趣」在没接 key 时也留下可观测的差异 ——
+        否则关掉模型，用户说了喜欢什么讨厌什么，结果一个字都不会变。
+        """
+        prefs = (profile.user_context or {}).get("preferences") or {}
+        liked = {str(p).strip().lower() for p in (prefs.get("liked_patterns") or [])}
+        disliked_patterns = {
+            str(p).strip().lower() for p in (prefs.get("disliked_patterns") or [])
+        }
+        disliked_names = {
+            str(p).strip().lower() for p in (prefs.get("disliked_exercises") or [])
+        }
+        if not (liked or disliked_patterns or disliked_names):
+            return pool
+
+        def rank(eid: int) -> int:
+            meta = index.get(eid) or {}
+            pattern = str(meta.get("motion_pattern") or "").strip().lower()
+            names = {
+                str(meta.get("name") or "").strip().lower(),
+                str(meta.get("name_zh") or "").strip().lower(),
+            }
+            if pattern in disliked_patterns or names & disliked_names:
+                return 2
+            return 0 if pattern in liked else 1
+
+        ranked = sorted(pool, key=rank)  # sorted 稳定，同档保持原随机顺序
+        keep = [eid for eid in ranked if rank(eid) < 2]
+        # 宁可本阶段少一个动作，也不塞一个用户明确不想做的动作；
+        # 只有当候选全被讨厌时才妥协（否则阶段会空掉，那是更严重的问题）。
+        return keep or ranked
 
     # ── 确定性后端 ────────────────────────────────────────────────────────
     def _generate_deterministic(
@@ -205,14 +247,26 @@ class PlanAgent:
             3. 时长上限与模式禁忌 —— 来自病历语义的约束。
         仍然不含伤病原文：模型拿到的只有已经被编译成约束的结论。
         """
+        ctx = profile.user_context or {}
+        prefs = ctx.get("preferences") or {}
+        liked = {str(p).strip().lower() for p in (prefs.get("liked_patterns") or [])}
+        disliked_patterns = {
+            str(p).strip().lower() for p in (prefs.get("disliked_patterns") or [])
+        }
+        disliked_names = {
+            str(p).strip().lower() for p in (prefs.get("disliked_exercises") or [])
+        }
+
         phase_candidates: Dict[str, List[Dict[str, Any]]] = {}
         for phase in PHASES:
             rows: List[Dict[str, Any]] = []
             for eid in grammar.phase_allowed_ids(phase):
                 meta = grammar.index.get(eid) or {}
+                pattern = str(meta.get("motion_pattern") or "").strip().lower()
+                name_zh = str(meta.get("name_zh") or meta.get("name") or "")
                 row: Dict[str, Any] = {
                     "exercise_id": eid,
-                    "name_zh": meta.get("name_zh") or meta.get("name", ""),
+                    "name_zh": name_zh,
                     "type": meta.get("type", ""),
                     "impact": int(meta.get("risk_level", 1)),
                 }
@@ -224,10 +278,17 @@ class PlanAgent:
                     row["timed"] = True
                 if meta.get("motion_pattern"):
                     row["motion_pattern"] = meta["motion_pattern"]
+                # 偏好标记：把「用户喜欢 / 不喜欢」直接标在候选上。
+                # 不写进 forbidden —— 不喜欢不是不能做，只是同等条件下让位。
+                if (pattern and pattern in disliked_patterns) or name_zh.lower() in disliked_names \
+                        or str(meta.get("name", "")).lower() in disliked_names:
+                    row["disliked"] = True
+                elif pattern and pattern in liked:
+                    row["liked"] = True
                 rows.append(row)
             phase_candidates[phase] = rows
 
-        return {
+        payload: Dict[str, Any] = {
             "workout_type": workout_type,
             "fitness_level": profile.fitness_level or "beginner",
             "session_cap_minutes": profile.session_cap_minutes,
@@ -251,6 +312,23 @@ class PlanAgent:
             "grammar_version": grammar.version,
             "profile_hash": profile.profile_hash,
         }
+
+        # 用户需求与偏好：只在有值时下发，避免空字段占 token。
+        # 这些是「软」信息 —— 影响选哪个动作、剂量偏保守还是激进，
+        # 但不改变任何约束边界（禁忌与区间照旧由规则夹紧）。
+        optional: Dict[str, Any] = {
+            "fitness_goal": ctx.get("fitness_goal"),
+            "training_frequency": ctx.get("training_frequency"),
+            "available_equipment": ctx.get("available_equipment") or None,
+            "preferences": ctx.get("preferences") or None,
+            "user_request": ctx.get("query") or None,
+            "progression_note": profile.progression_note or None,
+            "capacity_note": profile.capacity_note or None,
+        }
+        for key, value in optional.items():
+            if value:
+                payload[key] = value
+        return payload
 
     def _generate_with_llm(
         self,

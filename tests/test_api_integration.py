@@ -427,3 +427,69 @@ def test_model_decisions_reach_the_response(client, monkeypatch) -> None:
     # squat 模式被排除后，计划里不应再出现 squat 模式的深蹲类动作
     names = {ex["name"] for slots in data["phases"].values() for ex in slots}
     assert "Barbell Back Squat" not in names
+
+
+def test_full_profile_and_query_reach_the_pipeline(client) -> None:
+    """完整档案 + 一句话需求经 HTTP 抵达 Agent 层，且器械缺失被执行。"""
+    payload = {
+        "user_profile": {
+            "user_id": "ctx_http",
+            "basic_info": {"age": 34, "gender": "male"},
+            "fitness_level": "intermediate",
+            "fitness_goal": "strength",
+            "training_frequency": 2,
+            "available_equipment": ["bodyweight", "dumbbell"],
+            "preferences": {
+                "liked_patterns": ["hinge"],
+                "disliked_patterns": ["core"],
+                "disliked_exercises": ["Burpee"],
+                "notes": "讨厌憋气式大重量",
+            },
+            "medical_history": [
+                {
+                    "location": "knee",
+                    "condition": "meniscus_tear",
+                    "severity": "high",
+                    "notes": "蹲到底膝内侧刺痛",
+                }
+            ],
+        },
+        "workout_type": "lower_body",
+        "query": "今天只有三十分钟，想练下肢",
+    }
+    resp = client.post("/generate_plan", json=payload)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # 需求原话进入了状态分析阶段
+    state_audit = data["audit"][0]
+    assert state_audit["in"]["query"] == "今天只有三十分钟，想练下肢"
+    assert state_audit["in"]["workout_type"] == "lower_body"
+
+    # 完整上下文被记录下来（偏好在前，器械在后）
+    ctx = state_audit["out"]["user_context"]
+    assert ctx["fitness_goal"] == "strength"
+    assert ctx["preferences"]["disliked_exercises"] == ["Burpee"]
+    assert ctx["available_equipment"] == ["bodyweight", "dumbbell"]
+
+    # 器械缺失真的排除了动作 —— 不是只记一笔
+    assert state_audit["out"]["equipment_blocked"] > 0
+    assert data["safety"]["passed"] is True
+
+    # 只给自重+哑铃时，需要杠铃/绳索的动作不该出现在计划里
+    index = {ex["name"]: ex for ex in _exercise_rows(data)}
+    for slots in data["phases"].values():
+        for ex in slots:
+            gear = (index.get(ex["name"]) or {}).get("required_equipment") or []
+            assert not [g for g in gear if g not in {"bodyweight", "dumbbell"}], ex["name"]
+
+
+def _exercise_rows(data):
+    """从计划里反查动作元信息（用于器械断言）。"""
+    import json as _json
+    from pathlib import Path
+
+    db = _json.loads(Path("exercise_db.json").read_text(encoding="utf-8"))
+    return [{"name": ex.get("name"), "required_equipment": [
+        str(g).lower() for g in (ex.get("required_equipment") or [])
+    ]} for ex in db]

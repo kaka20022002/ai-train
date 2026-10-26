@@ -96,6 +96,30 @@ class BasicInfo(BaseModel):
     bmi: Optional[float] = Field(None, description="Body Mass Index")
 
 
+class TrainingPreferences(BaseModel):
+    """用户的训练偏好（兴趣）。
+
+    这是**软约束**：影响模型选动作的倾向，不构成医学禁忌。
+    与 medical_history 的区别在于——不喜欢不等于不能做，
+    所以它不会被写进 forbidden，只作为排序与取舍的偏好。
+    """
+    liked_patterns: List[str] = Field(
+        default_factory=list,
+        description="喜欢的动作模式（如 ['squat', 'hinge']），选动作时优先考虑",
+    )
+    disliked_patterns: List[str] = Field(
+        default_factory=list,
+        description="不喜欢的动作模式，同等条件下尽量避开（不是禁忌）",
+    )
+    disliked_exercises: List[str] = Field(
+        default_factory=list,
+        description="明确不想做的动作名称（中英文均可）",
+    )
+    notes: Optional[str] = Field(
+        None, description="自由文本，如「怕练粗腿」「讨厌长时间有氧」"
+    )
+
+
 class UserProfile(BaseModel):
     """Schema for complete user profile."""
     user_id: str = Field(..., description="Unique user identifier")
@@ -112,6 +136,9 @@ class UserProfile(BaseModel):
         ),
     )
     medical_history: List[MedicalHistoryItem] = Field(default_factory=list)
+    preferences: Optional[TrainingPreferences] = Field(
+        None, description="训练偏好（兴趣），软约束"
+    )
 
     class Config:
         json_schema_extra = {
@@ -196,6 +223,15 @@ class GeneratePlanRequest(BaseModel):
     user_profile: UserProfile
     feedback: Optional[FeedbackInput] = None
     workout_type: str = Field("full_body", description="Type of workout to generate")
+    query: Optional[str] = Field(
+        None,
+        max_length=500,
+        description=(
+            "本次训练需求的一句话描述（自由文本），如「今天想练下肢，只有三十分钟，"
+            "膝盖蹲到底有点不舒服」。会原样进入状态分析 Agent，用于抽取"
+            "时长上限、症状描述这类结构化字段表达不出的信息。"
+        ),
+    )
 
     class Config:
         json_schema_extra = {
@@ -675,6 +711,7 @@ async def generate_plan(
                 user_profile=user_profile_dict,
                 feedback=feedback_dict,
                 workout_type=request.workout_type,
+                query=request.query,
                 **agent_kwargs,
             )
             plan_export = render_plan_draft(

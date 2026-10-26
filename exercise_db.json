@@ -1929,5 +1929,202 @@
       "bodyweight"
     ],
     "alternatives_by_equipment": {}
+  },
+  {
+    "id": 71,
+    "name": "Goblet Squat",
+    "name_zh": "哑铃高脚杯深蹲",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "patellar_tendonitis"
+    ],
+    "substitution": "Barbell Back Squat",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Bodyweight Squat"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "squat",
+    "is_timed": false
+  },
+  {
+    "id": 72,
+    "name": "Dumbbell Romanian Deadlift",
+    "name_zh": "哑铃罗马尼亚硬拉",
+    "type": "Compound",
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation"
+    ],
+    "substitution": "Romanian Deadlift",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Romanian Deadlift",
+      "bodyweight": "Single-Leg Glute Bridge"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 73,
+    "name": "Dumbbell Sumo Deadlift",
+    "name_zh": "哑铃相扑硬拉",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "patellar_tendonitis"
+    ],
+    "substitution": "Sumo Deadlift",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Sumo Deadlift"
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 74,
+    "name": "Single-Leg Glute Bridge",
+    "name_zh": "单腿臀桥",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Hip Thrust",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Hip Thrust"
+    },
+    "phase": [
+      "main_lifts",
+      "activation"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 75,
+    "name": "One-Arm Dumbbell Row",
+    "name_zh": "哑铃单臂划船",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement"
+    ],
+    "substitution": "Barbell Row",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Inverted Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
+  },
+  {
+    "id": 76,
+    "name": "Dumbbell Bent-Over Row",
+    "name_zh": "哑铃俯身划船",
+    "type": "Compound",
+    "target_muscle": "Rhomboids",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation",
+      "shoulder_impingement"
+    ],
+    "substitution": "Barbell Row",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Barbell Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
+  },
+  {
+    "id": 77,
+    "name": "Inverted Row",
+    "name_zh": "反向划船",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement"
+    ],
+    "substitution": "One-Arm Dumbbell Row",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "One-Arm Dumbbell Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
   }
 ]
