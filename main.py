@@ -33,9 +33,15 @@ from sqlalchemy.orm import Session
 # Load .env before routers / plan_generator read USE_REAL_LLM & LLM_* vars
 # override=True: 避免本机已有的 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 # （例如指向 DeepSeek）覆盖项目 .env 中的 MiniMax 配置。
+# AI_TRAIN_ENV_FROZEN=1 时跳过 override：测试 / CI 用它钉住环境变量，
+# 否则本地 .env 里一填进真实 key，整个测试套件就会开始真调 API。
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+
+    _frozen = os.getenv("AI_TRAIN_ENV_FROZEN", "").strip().lower() in ("1", "true", "yes")
+    load_dotenv(
+        Path(__file__).resolve().parent / ".env", override=not _frozen
+    )
 except ImportError:
     pass
 

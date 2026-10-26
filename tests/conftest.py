@@ -1,6 +1,16 @@
 """Shared pytest fixtures — in-memory SQLite for isolated API/DB tests."""
 from __future__ import annotations
 
+import os
+
+# 必须在 import main / agents 之前钉死：单元测试一律不连真实 LLM。
+# .env 里填了 key 并打开 USE_REAL_LLM 之后，若不做这一步，整个测试套件会
+# 开始真调 API（慢、花钱、且网络抖动会让结果 flaky）。
+# AI_TRAIN_ENV_FROZEN 让 main.py 加载 .env 时不 override，否则下面的
+# USE_REAL_LLM=false 会被 .env 里的 true 改回去。
+os.environ["AI_TRAIN_ENV_FROZEN"] = "1"
+os.environ["USE_REAL_LLM"] = "false"
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

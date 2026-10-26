@@ -3,6 +3,7 @@
 用法：
     python scripts/trace_stages.py            # 当前后端（无 key → 基线降级）
     python scripts/trace_stages.py --agent    # 用假模型模拟三通道，看完整形状
+    python scripts/trace_stages.py --llm      # 用 .env 里的真 key 跑，看真实产物
 
 输出同时写到 stdout 与 trace_stages.txt。
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from typing import Any, Dict, List
 
@@ -231,8 +233,41 @@ def safety_fake(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+def _real_bridges():
+    """按 .env 配置装配三个 Agent 的真实 LLM 后端；配置不全时返回 None。"""
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+    except ImportError:
+        pass
+
+    if os.getenv("USE_REAL_LLM", "false").strip().lower() not in ("1", "true", "yes"):
+        print("  ❌ USE_REAL_LLM 不是 true，--llm 模式需要先在 .env 里打开它")
+        return None
+    if not os.getenv("OPENAI_API_KEY", "").strip():
+        print("  ❌ OPENAI_API_KEY 为空，--llm 模式需要先填 key")
+        return None
+
+    from llm_client import LLMClient
+
+    from agents.llm_bridge import build_bridges
+
+    return build_bridges(LLMClient())
+
+
 def main() -> None:
-    use_agent = "--agent" in sys.argv
+    use_dummy = "--agent" in sys.argv
+    use_llm = "--llm" in sys.argv
+
+    bridges = None
+    if use_llm:
+        bridges = _real_bridges()
+        if bridges is None:
+            raise SystemExit(2)
+
+    use_agent = use_dummy or bridges is not None
 
     head("阶段 0｜输入")
     p("  POST /generate_plan")
@@ -245,11 +280,12 @@ def main() -> None:
     p(f'  query        = "{QUERY}"')
 
     # ── 阶段一 ──────────────────────────────────────────────────────────
-    state_agent = (
-        StateRiskAgent(DB, llm_enhance_fn=lambda payload: STATE_FAKE)
-        if use_agent
-        else StateRiskAgent(DB)
-    )
+    if bridges is not None:
+        state_agent = StateRiskAgent(DB, llm_enhance_fn=bridges.state_fn)
+    elif use_dummy:
+        state_agent = StateRiskAgent(DB, llm_enhance_fn=lambda payload: STATE_FAKE)
+    else:
+        state_agent = StateRiskAgent(DB)
     profile = state_agent.analyze(
         USER_PROFILE, FEEDBACK, workout_type=WORKOUT_TYPE, query=QUERY
     )
@@ -339,10 +375,15 @@ def main() -> None:
     dump((plan_payload.get("exercise_catalog") or [])[:3])
 
     # ── 阶段三 ──────────────────────────────────────────────────────────
-    plan_agent = PlanAgent(llm_plan_fn=plan_fake) if use_agent else PlanAgent()
-    safety_agent = (
-        SafetyEvalAgent(llm_judge_fn=safety_fake) if use_agent else SafetyEvalAgent()
-    )
+    if bridges is not None:
+        plan_agent = PlanAgent(llm_plan_fn=bridges.plan_fn)
+        safety_agent = SafetyEvalAgent(llm_judge_fn=bridges.safety_fn)
+    elif use_dummy:
+        plan_agent = PlanAgent(llm_plan_fn=plan_fake)
+        safety_agent = SafetyEvalAgent(llm_judge_fn=safety_fake)
+    else:
+        plan_agent = PlanAgent()
+        safety_agent = SafetyEvalAgent()
 
     draft = plan_agent.generate(profile, catalog, WORKOUT_TYPE)
     head("阶段 2｜产物：PlanDraft")
@@ -424,12 +465,19 @@ def main() -> None:
         workout_type=WORKOUT_TYPE,
         query=QUERY,
         state_agent=(
-            StateRiskAgent(DB, llm_enhance_fn=lambda payload: STATE_FAKE)
-            if use_agent
-            else None
+            None
+            if not use_agent
+            else StateRiskAgent(
+                DB,
+                llm_enhance_fn=(
+                    bridges.state_fn
+                    if bridges is not None
+                    else (lambda payload: STATE_FAKE)
+                ),
+            )
         ),
-        plan_agent=PlanAgent(llm_plan_fn=plan_fake) if use_agent else None,
-        safety_agent=SafetyEvalAgent(llm_judge_fn=safety_fake) if use_agent else None,
+        plan_agent=plan_agent if use_agent else None,
+        safety_agent=safety_agent if use_agent else None,
     )
 
     head("完整链路结果（含会审回路）")
@@ -454,8 +502,11 @@ def main() -> None:
 
     text = "\n".join(OUT)
     print(text)
-    with io.open("trace_stages.txt", "w", encoding="utf-8", newline="\n") as fh:
+    mode = "llm" if bridges is not None else ("agent" if use_dummy else "baseline")
+    out_name = f"trace_stages_{mode}.txt"
+    with io.open(out_name, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text + "\n")
+    print(f"\n（已写入 {out_name}）")
 
 
 if __name__ == "__main__":

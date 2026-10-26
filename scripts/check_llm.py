@@ -125,7 +125,7 @@ def check_env(model_override: Optional[str]) -> Dict[str, str]:
 def _call(
     cfg: Dict[str, str], *, json_mode: bool, system: str, user: str
 ) -> tuple[bool, str, Dict[str, Any]]:
-    from llm_client import LLMClient
+    from llm_client import LLMClient, NO_RESPONSE_FORMAT
 
     client = LLMClient(
         api_key=cfg["key"],
@@ -140,7 +140,9 @@ def _call(
     try:
         raw = client._call_provider(  # noqa: SLF001 - 自检就是要摸底层
             messages,
-            response_format={"type": "json_object"} if json_mode else None,
+            # 纯文本探测必须真的不带 response_format，否则部分 provider
+            # （如 DeepSeek）会因 prompt 里没有 "json" 而 400。
+            response_format={"type": "json_object"} if json_mode else NO_RESPONSE_FORMAT,
         )
         return True, raw or "", {"latency": round(time.time() - t0, 2)}
     except Exception as exc:  # noqa: BLE001

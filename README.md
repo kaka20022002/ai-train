@@ -293,6 +293,18 @@ Agent 读；约束（`allowed_ids` / `joint_caps` / `avoid_patterns` / …）是
 - `plan_generator_mock.py` 内部通过 `LLMClient` 调用真实 LLM；
 - 若环境变量缺失或初始化失败，可将 `USE_REAL_LLM` 置为 `false` 回退到本地 Mock 生成器。
 
+接好 key 之后建议按这个顺序验证，别一上来就跑整条链路：
+
+```bash
+python scripts/check_llm.py              # ① 配置对不对（两次最小请求，几秒）
+python scripts/trace_stages.py --agent   # ② 产物形状对不对（假模型，不花钱）
+python scripts/trace_stages.py --llm     # ③ 真模型跑一遍三阶段 + 会审回路
+```
+
+`--llm` 的完整输出会写到 `docs/trace_llm.txt`，可以直接对比 `docs/trace_baseline.txt`
+看模型到底改了什么。单元测试不受 `.env` 影响：`tests/conftest.py` 会钉住
+`USE_REAL_LLM=false`，跑 `pytest` 不会调用真实 API。
+
 ## 命令行 Demo
 
 也可以直接运行计划生成 Demo：

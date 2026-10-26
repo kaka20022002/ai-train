@@ -49,6 +49,30 @@ import httpx
 from risk_engine import ForbiddenExercise, RiskConstraint
 
 
+# Sentinel for "call this provider as plain text, do NOT send response_format".
+# ``None`` keeps the historical default (json_object), so a distinct value is
+# needed to opt out explicitly.
+NO_RESPONSE_FORMAT = "__no_response_format__"
+
+# Providers that reject ``response_format`` (or accept it only under extra
+# prompt conditions) answer with a 400 whose body mentions one of these.
+_FORMAT_REJECTION_MARKERS = (
+    "response_format",
+    "json_object",
+    "must contain the word 'json'",
+    "unsupported parameter",
+)
+
+
+def _is_format_rejection(err: str) -> bool:
+    """True when *err* looks like a 400 caused by ``response_format``."""
+
+    low = err.lower()
+    if "400" not in low and "badrequest" not in low:
+        return False
+    return any(marker in low for marker in _FORMAT_REJECTION_MARKERS)
+
+
 # Chinese labels for the canonical equipment taxonomy (Sprint 3).
 _EQUIPMENT_CN = {
     "bodyweight": "自重",
@@ -488,12 +512,22 @@ class LLMClient:
     def _call_provider(
         self,
         messages: List[Dict[str, str]],
-        response_format: Dict[str, Any] | None = None,
+        response_format: Dict[str, Any] | str | None = None,
     ) -> str:
         """Send *messages* to the configured provider and return raw content.
 
         Automatically retries on transient server errors (HTTP 429 / 529)
         with exponential back-off.
+
+        ``response_format`` semantics:
+          * ``None``                 → historical default, ``{"type": "json_object"}``
+          * a dict                   → sent as-is
+          * ``NO_RESPONSE_FORMAT``   → omitted entirely (plain text call)
+
+        If the provider rejects the requested format with a 400 (some gateways
+        don't implement ``json_object``, and DeepSeek additionally requires the
+        prompt itself to contain the word "json"), the call is retried once
+        without ``response_format`` instead of failing the whole request.
         """
         # Retry schedule for transient errors (529 overloaded / 429 rate limit):
         # wait 15s, 30s, 60s, 120s between attempts → max 5 attempts total.
@@ -504,6 +538,19 @@ class LLMClient:
                 return self._call_provider_once(messages, response_format=response_format)
             except Exception as exc:
                 err_str = str(exc)
+
+                # 400 caused by response_format → downgrade to plain text once.
+                if response_format is not NO_RESPONSE_FORMAT and _is_format_rejection(
+                    err_str
+                ):
+                    print(
+                        "   ⚠️ Provider rejected response_format, "
+                        "retrying as plain text..."
+                    )
+                    return self._call_provider(
+                        messages, response_format=NO_RESPONSE_FORMAT
+                    )
+
                 is_transient = (
                     "529" in err_str
                     or "overloaded" in err_str.lower()
@@ -533,7 +580,7 @@ class LLMClient:
     def _call_provider_once(
         self,
         messages: List[Dict[str, str]],
-        response_format: Dict[str, Any] | None = None,
+        response_format: Dict[str, Any] | str | None = None,
     ) -> str:
         """Single attempt to call the provider (no retry logic here)."""
 
@@ -544,11 +591,14 @@ class LLMClient:
                 "temperature": 0.7,
             }
             # 默认沿用历史上的 json_object 模式（generate_workout_plan 依赖它）；
-            # 显式传入 response_format 时以调用方为准（例如 Agent 审查只用
-            # 普通文本时不带该参数）。
-            kwargs["response_format"] = (
-                response_format if response_format is not None else {"type": "json_object"}
-            )
+            # 显式传入 response_format 时以调用方为准；传 NO_RESPONSE_FORMAT
+            # 表示纯文本调用，完全不带该参数。
+            if response_format is not NO_RESPONSE_FORMAT:
+                kwargs["response_format"] = (
+                    response_format
+                    if response_format is not None
+                    else {"type": "json_object"}
+                )
             completion = self._openai_client.chat.completions.create(**kwargs)
             return completion.choices[0].message.content
 
@@ -864,6 +914,13 @@ class LLMClient:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        # DeepSeek 硬性要求：用 json_object 模式时 prompt 里必须出现 "json"
+        # 这个词，否则直接 400。这里的兜底只在 prompt 漏写时补一句，正常
+        # 三份 Agent prompt 都自带该要求，不会触发。
+        if "json" not in f"{system_prompt}\n{user_prompt}".lower():
+            messages[0]["content"] = (
+                system_prompt.rstrip() + "\n\n只输出一个 JSON 对象，不要任何解释文字。"
+            )
         content = self._call_provider(messages, response_format={"type": "json_object"})
         if not content or not content.strip():
             raise ValueError("LLM returned an empty response.")
