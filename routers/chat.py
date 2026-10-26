@@ -299,9 +299,16 @@ def chat(
     user_msg = crud.add_message(db, conv.conversation_id, "user", request.message)
 
     # Build context + load prior history (last 30 turns)
-    context = build_context(db, request.user_id, history_window=history_window)
     prior_messages = crud.get_messages(db, conv.conversation_id, limit=30)
     history_dicts = crud.messages_to_history_dicts(prior_messages[:-1])  # exclude the just-added user message
+    # 顺序：先有历史再建上下文 —— 教练侧的风险分析要参考用户前面说过的话
+    context = build_context(
+        db,
+        request.user_id,
+        history_window=history_window,
+        message=request.message,
+        history=history_dicts,
+    )
 
     response = _agent.respond(
         context=context,
@@ -386,9 +393,15 @@ def chat_stream(
 
     user_msg = crud.add_message(db, conv.conversation_id, "user", request.message)
 
-    context = build_context(db, request.user_id, history_window=history_window)
     prior = crud.get_messages(db, conv.conversation_id, limit=30)
     history_dicts = crud.messages_to_history_dicts(prior[:-1])
+    context = build_context(
+        db,
+        request.user_id,
+        history_window=history_window,
+        message=request.message,
+        history=history_dicts,
+    )
 
     def event_stream():
         # Initial event tells the client what conversation we're on
