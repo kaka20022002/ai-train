@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import random
 import uuid
+import zlib
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from agents.catalog import ExerciseCatalog
@@ -341,8 +342,12 @@ class PlanAgent:
         from agents.grammar import RiskGrammar  # 局部导入：只在降级路径用
 
         grammar = RiskGrammar(profile, catalog.index)
+        # 种子必须跨进程稳定：内置 hash() 受 PYTHONHASHSEED 影响，同一份档案
+        # 重启一次服务就换一套计划，「确定性后端」就名不副实了。
         rng = random.Random(
-            seed if seed is not None else hash(profile.profile_hash + workout_type)
+            seed
+            if seed is not None
+            else zlib.crc32((profile.profile_hash + workout_type).encode("utf-8"))
         )
         phases: Dict[str, List[Slot]] = {}
         used: List[int] = []

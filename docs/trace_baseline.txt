@@ -1,0 +1,443 @@
+
+══════════════════════════════════════════════════════════════════════════
+阶段 0｜输入
+══════════════════════════════════════════════════════════════════════════
+  POST /generate_plan
+  ── user_profile（身体状况）──
+  {
+    "user_id": "u_demo",
+    "basic_info": {
+      "age": 30,
+      "gender": "male",
+      "height_cm": 178,
+      "weight_kg": 76
+    },
+    "fitness_level": "beginner",
+    "fitness_goal": "strength",
+    "training_frequency": 2,
+    "available_equipment": [
+      "bodyweight",
+      "dumbbell"
+    ],
+    "medical_history": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "notes": "蹲到底膝内侧刺痛，术后两年仍不敢全幅度深蹲"
+      },
+      {
+        "location": "shoulder",
+        "condition": "impingement",
+        "severity": "low",
+        "notes": "过顶推举到最后会有点夹"
+      }
+    ],
+    "preferences": {
+      "liked_patterns": [
+        "hinge"
+      ],
+      "disliked_patterns": [
+        "jump"
+      ]
+    }
+  }
+  ── feedback（上次训练反馈）──
+  {
+    "last_rpe": 8,
+    "sleep_quality": "poor",
+    "pain_feedback": {
+      "knee": 3
+    },
+    "soreness": {
+      "hamstring": 2
+    }
+  }
+  ── 本次需求 ──
+  workout_type = "lower_body"
+  query        = "今天只有三十分钟，想练下肢，别让膝盖难受"
+
+══════════════════════════════════════════════════════════════════════════
+阶段 1｜state_risk —— 身体情况 → 风险报告
+══════════════════════════════════════════════════════════════════════════
+  ① 发给模型的请求（节选）
+  in:
+  {
+    "basic_info": {
+      "age": 30,
+      "gender": "male",
+      "height_cm": 178,
+      "weight_kg": 76
+    },
+    "fitness_level": "beginner",
+    "medical_history": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "notes": "蹲到底膝内侧刺痛，术后两年仍不敢全幅度深蹲"
+      },
+      {
+        "location": "shoulder",
+        "condition": "impingement",
+        "severity": "low",
+        "notes": "过顶推举到最后会有点夹"
+      }
+    ],
+    "recent_feedback": {
+      "last_rpe": 8,
+      "sleep_quality": "poor",
+      "pain_feedback": {
+        "knee": 3
+      },
+      "soreness": {
+        "hamstring": 2
+      }
+    },
+    "current_request": {
+      "workout_type": "lower_body",
+      "query": "今天只有三十分钟，想练下肢，别让膝盖难受"
+    },
+    "baseline_constraints": {
+      "joint_caps": {
+        "knee": 2,
+        "shoulder": 4
+      },
+      "impact_ceiling": 5,
+      "load_pct_cap": null,
+      "forbidden_count": 34
+    }
+  }
+  ② 产物：risk_report（报告主体，给人看也给下游看）
+  {
+    "source": "baseline",
+    "overall": {
+      "risk_level": "high",
+      "clearance": "conditional",
+      "summary": "规则基线：2 处伤情（肩、膝），冲击等级上限 5"
+    },
+    "injuries": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "functional_impact": "蹲到底膝内侧刺痛，术后两年仍不敢全幅度深蹲",
+        "contraindications": [],
+        "safe_substitutes": [],
+        "impact_cap": 2,
+        "load_pct_ceiling": null,
+        "source": "baseline"
+      },
+      {
+        "location": "shoulder",
+        "condition": "impingement",
+        "severity": "low",
+        "functional_impact": "过顶推举到最后会有点夹",
+        "contraindications": [],
+        "safe_substitutes": [],
+        "impact_cap": 4,
+        "load_pct_ceiling": null,
+        "source": "baseline"
+      }
+    ],
+    "dose_guidance": {},
+    "watch_items": [
+      "训练中膝部出现疼痛立即停止该动作",
+      "训练中肩部出现疼痛立即停止该动作"
+    ],
+    "rationale": ""
+  }
+  ③ 产物：约束投影（同一判断的机器可执行形态）
+  constraints:
+  {
+    "allowed_ids_count": 43,
+    "forbidden_reasons": {
+      "1": "SEVERITY_HIGH:knee",
+      "2": "SEVERITY_HIGH:knee",
+      "3": "EQUIPMENT_MISSING:barbell",
+      "4": "EQUIPMENT_MISSING:barbell",
+      "5": "EQUIPMENT_MISSING:pull_up_bar",
+      "6": "EQUIPMENT_MISSING:barbell",
+      "7": "SEVERITY_HIGH:knee",
+      "8": "SEVERITY_HIGH:knee",
+      "9": "EQUIPMENT_MISSING:machine",
+      "10": "EQUIPMENT_MISSING:machine",
+      "11": "EQUIPMENT_MISSING:barbell",
+      "12": "EQUIPMENT_MISSING:barbell",
+      "14": "EQUIPMENT_MISSING:bench",
+      "15": "EQUIPMENT_MISSING:bench",
+      "16": "EQUIPMENT_MISSING:cable",
+      "17": "EQUIPMENT_MISSING:machine",
+      "18": "EQUIPMENT_MISSING:cable",
+      "19": "EQUIPMENT_MISSING:barbell",
+      "20": "EQUIPMENT_MISSING:cable",
+      "23": "EQUIPMENT_MISSING:barbell",
+      "25": "EQUIPMENT_MISSING:bench",
+      "27": "EQUIPMENT_MISSING:cable",
+      "28": "EQUIPMENT_MISSING:bench",
+      "32": "EQUIPMENT_MISSING:pull_up_bar",
+      "34": "EQUIPMENT_MISSING:machine",
+      "35": "EQUIPMENT_MISSING:barbell",
+      "36": "SEVERITY_HIGH:knee",
+      "37": "SEVERITY_HIGH:knee",
+      "38": "SEVERITY_HIGH:knee",
+      "45": "EQUIPMENT_MISSING:band",
+      "64": "EQUIPMENT_MISSING:band",
+      "65": "EQUIPMENT_MISSING:band",
+      "67": "EQUIPMENT_MISSING:cable",
+      "68": "EQUIPMENT_MISSING:kettlebell"
+    },
+    "joint_caps": {
+      "knee": 2,
+      "shoulder": 4
+    },
+    "impact_ceiling": 5,
+    "load_pct_cap": null,
+    "avoid_patterns": [],
+    "session_cap_minutes": null,
+    "risk_level": "high",
+    "clearance": "conditional",
+    "profile_hash": "8728b3431323b869"
+  }
+  ④ 通道状态
+  llm:
+  {
+    "llm_status": "skipped",
+    "llm_prompt_version": "",
+    "llm_forbidden": [],
+    "llm_rationale": ""
+  }
+
+══════════════════════════════════════════════════════════════════════════
+阶段 2｜plan_gen —— 风险报告 + 需求 → 计划
+══════════════════════════════════════════════════════════════════════════
+  ① 发给模型的请求（结构摘要）
+  in:
+  {
+    "workout_type": "lower_body",
+    "fitness_level": "beginner",
+    "session_cap_minutes": null,
+    "user_request": "今天只有三十分钟，想练下肢，别让膝盖难受",
+    "preferences": {
+      "liked_patterns": [
+        "hinge"
+      ],
+      "disliked_patterns": [
+        "jump"
+      ]
+    },
+    "available_equipment": [
+      "bodyweight",
+      "dumbbell"
+    ],
+    "exercise_catalog_rows": 77,
+    "reference_doses": 17,
+    "risk_report_keys": [
+      "dose_guidance",
+      "injuries",
+      "overall",
+      "rationale",
+      "source",
+      "watch_items"
+    ],
+    "baseline.forbidden_exercises": 7,
+    "baseline.unavailable_exercises": 27,
+    "payload_bytes": 16118
+  }
+  ② risk_report 原样透传给生成端（首要依据）
+  {
+    "source": "baseline",
+    "overall": {
+      "risk_level": "high",
+      "clearance": "conditional",
+      "summary": "规则基线：2 处伤情（肩、膝），冲击等级上限 5"
+    },
+    "injuries": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "functional_impact": "蹲到底膝内侧刺痛，术后两年仍不敢全幅度深蹲",
+        "contraindications": [],
+        "safe_substitutes": [],
+        "impact_cap": 2,
+        "load_pct_ceiling": null,
+        "source": "baseline"
+      },
+      {
+        "location": "shoulder",
+        "condition": "impingement",
+        "severity": "low",
+        "functional_impact": "过顶推举到最后会有点夹",
+        "contraindications": [],
+        "safe_substitutes": [],
+        "impact_cap": 4,
+        "load_pct_ceiling": null,
+        "source": "baseline"
+      }
+    ],
+    "dose_guidance": {},
+    "watch_items": [
+      "训练中膝部出现疼痛立即停止该动作",
+      "训练中肩部出现疼痛立即停止该动作"
+    ],
+    "rationale": ""
+  }
+  ③ 候选目录里的前 3 行（全库视图，无裁剪）
+  [
+    {
+      "exercise_id": 1,
+      "name": "杠铃深蹲",
+      "type": "Compound",
+      "impact": 4,
+      "phases": [
+        "main_lifts"
+      ],
+      "pattern": "squat",
+      "gear": [
+        "barbell",
+        "squat_rack"
+      ]
+    },
+    {
+      "exercise_id": 2,
+      "name": "传统硬拉",
+      "type": "Compound",
+      "impact": 5,
+      "phases": [
+        "main_lifts"
+      ],
+      "pattern": "hinge",
+      "gear": [
+        "barbell"
+      ],
+      "liked": true
+    },
+    {
+      "exercise_id": 3,
+      "name": "杠铃卧推",
+      "type": "Compound",
+      "impact": 3,
+      "phases": [
+        "main_lifts"
+      ],
+      "pattern": "push_h",
+      "gear": [
+        "barbell",
+        "bench"
+      ]
+    }
+  ]
+
+══════════════════════════════════════════════════════════════════════════
+阶段 2｜产物：PlanDraft
+══════════════════════════════════════════════════════════════════════════
+  draft:
+  {
+    "plan_id": "draft_a958bb5c9f",
+    "generator": "deterministic",
+    "prompt_version": "",
+    "grammar_version": "catalog/1.0.0",
+    "rejected_ids": [],
+    "adjusted_slots": 0,
+    "slot_count": 16
+  }
+  warm_up（3 个）:
+    #50  胸椎旋转                         1×10-12 次 load=None impact=1 rest=None | 
+    #47  原地踏步                         1×10-12 次 load=None impact=1 rest=None | 
+    #48  世界最伟大拉伸                      1×10-12 次 load=None impact=1 rest=None | 
+  activation（3 个）:
+    #61  臀桥                           2×12-15 次 load=None impact=1 rest=None | 
+    #62  鸟狗式                          2×12-15 次 load=None impact=1 rest=None | 
+    #69  单腿站立                         2×12-15 次 load=None impact=1 rest=None | 
+  main_lifts（3 个）:
+    #73  哑铃相扑硬拉                       4×6-8 次  load=75 impact=2 rest=None | 
+    #71  哑铃高脚杯深蹲                      4×6-8 次  load=75 impact=2 rest=None | 
+    #74  单腿臀桥                         4×10-15 次 load=None impact=1 rest=None | 
+  accessories（4 个）:
+    #72  哑铃罗马尼亚硬拉                     3×8-10 次 load=60 impact=2 rest=None | 
+    #30  平板支撑                         3×30-45 秒 load=None impact=1 rest=None | 
+    #13  提踵                           3×10-12 次 load=None impact=1 rest=None | 
+    #31  卷腹                           3×10-12 次 load=None impact=2 rest=None | 
+  cool_down（3 个）:
+    #56  四字臀肌拉伸                       1×30 秒   load=None impact=1 rest=None | 
+    #53  靠墙小腿拉伸                       1×30 秒   load=None impact=1 rest=None | 
+    #59  髂腰肌拉伸                        1×30 秒   load=None impact=1 rest=None | 
+
+══════════════════════════════════════════════════════════════════════════
+阶段 3｜safety_eval —— 计划 + 报告 → 裁决
+══════════════════════════════════════════════════════════════════════════
+  ① 发给模型的请求（结构摘要）
+  in:
+  {
+    "plan.workout_type": "lower_body",
+    "plan.generator": "deterministic",
+    "plan_slots": 16,
+    "user_profile.fitness_level": "beginner",
+    "user_profile.medical_history": 2,
+    "user_profile.current_request": {
+      "workout_type": "lower_body",
+      "query": "今天只有三十分钟，想练下肢，别让膝盖难受"
+    },
+    "session_cap_minutes": null,
+    "risk_report_keys": [
+      "dose_guidance",
+      "injuries",
+      "overall",
+      "rationale",
+      "source",
+      "watch_items"
+    ],
+    "baseline_flags": 0
+  }
+  ② 基线命中项（证据，不是判决）
+  []
+
+══════════════════════════════════════════════════════════════════════════
+阶段 3｜产物：SafetyReport
+══════════════════════════════════════════════════════════════════════════
+  report:
+  {
+    "passed": true,
+    "review_mode": "baseline",
+    "llm_verdict": "skipped",
+    "llm_disagreed": false,
+    "llm_rationale": "未接入审查 Agent，结论由基线谓词给出",
+    "llm_prompt_version": "safety_eval/3.1.0",
+    "checked_slots": 16,
+    "violations": [],
+    "baseline_flags": []
+  }
+
+══════════════════════════════════════════════════════════════════════════
+完整链路结果（含会审回路）
+══════════════════════════════════════════════════════════════════════════
+  review_rounds   = 0
+  reviewed_by_agent = False
+  generator       = deterministic
+  passed          = True
+  review_mode     = baseline
+  llm_verdict     = skipped
+  最终动作 16 个: [50, 47, 48, 61, 62, 69, 73, 71, 74, 72, 30, 13, 31, 56, 53, 59]
+
+══════════════════════════════════════════════════════════════════════════
+审计链（每阶段的输入摘要与输出骨架）
+══════════════════════════════════════════════════════════════════════════
+  · state_risk
+      in  = {"user_id": "u_demo", "injury_joints": ["knee", "shoulder"], "feedback_keys": ["last_rpe", "pain_feedback", "sleep_quality", "soreness"], "workout_type": "lower_body", "query": "今天只有三十分钟，想练下肢，别让膝盖难受"}
+      out = {"profile_hash": "8728b3431323b869", "baseline_forbidden": 34, "joint_caps": {"knee": 2, "shoulder": 4}, "impact_ceiling": 5, "load_pct_cap": null, "rules": 38, "equipment_blocked": 27, "user_context": {"basic_info": {"age": 30, "gender": "male", "height_cm": 178, "weight_kg": 76}, "fitness_level": "beginner", "fitness_goal": "strength", "training_frequency": 2, "available_equipment": ["bodyweight
+  · plan_gen
+      in  = {"profile_hash": "8728b3431323b869", "catalog_version": "catalog/1.0.0", "catalog_size": 77, "workout_type": "lower_body", "backend": "deterministic", "risk_report_source": "baseline"}
+      out = {"plan_id": "draft_d1811c0885", "generator": "deterministic", "prompt_version": "plan_gen/3.1.0", "slots": 16, "ids": [50, 47, 48, 61, 62, 69, 73, 71, 74, 72, 30, 13, 31, 56, 53, 59], "unknown_ids": [], "defaulted_slots": 0}
+  · safety_eval
+      in  = {"plan_id": "draft_d1811c0885", "profile_hash": "8728b3431323b869", "review_mode": "baseline", "baseline_flags": 0, "risk_report_source": "baseline"}
+      out = {"passed": true, "violations": [], "baseline_flags": [], "checked_slots": 16, "review_mode": "baseline", "llm_verdict": "skipped", "llm_disagreed": false, "llm_rationale": "未接入审查 Agent，结论由基线谓词给出", "llm_prompt_version": "safety_eval/3.1.0"}
+
+══════════════════════════════════════════════════════════════════════════
+对外响应里的 safety_notes（用户看到的话）
+══════════════════════════════════════════════════════════════════════════
+  🩺 风险报告（high）：有条件训练：规则基线：2 处伤情（肩、膝），冲击等级上限 5
+  👀 训练中膝部出现疼痛立即停止该动作
+  👀 训练中肩部出现疼痛立即停止该动作
+  ℹ️ 本次未经 Agent 审查（未配置模型），结论由基线谓词给出（未发现命中项）
+  📐 关节冲击上限（基线建议）：knee≤2、shoulder≤4
