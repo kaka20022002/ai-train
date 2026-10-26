@@ -17,6 +17,9 @@ const TYPE_BADGE: Record<string, { bg: string; color: string }> = {
   Compound: { bg: "rgba(108,99,255,0.12)", color: "var(--accent)" },
   Isolation: { bg: "rgba(16,185,129,0.12)", color: "var(--success)" },
   Isometric: { bg: "rgba(245,158,11,0.12)", color: "var(--warning)" },
+  Warmup: { bg: "rgba(59,130,246,0.12)", color: "var(--info, #3b82f6)" },
+  Stretch: { bg: "rgba(139,92,246,0.12)", color: "var(--violet, #8b5cf6)" },
+  Activation: { bg: "rgba(236,72,153,0.12)", color: "var(--pink, #ec4899)" },
 };
 
 export default function ExercisesPage() {
@@ -129,7 +132,7 @@ export default function ExercisesPage() {
               style={{ background: "var(--surface2)", borderColor: "var(--border)", color: "var(--text)" }}
             >
               <option value="全部">全部</option>
-              {["Compound", "Isolation", "Isometric"].map((t) => (
+              {["Compound", "Isolation", "Isometric", "Warmup", "Stretch", "Activation"].map((t) => (
                 <option key={t} value={t}>{TYPE_CN[t] ?? t}</option>
               ))}
             </select>

@@ -187,7 +187,11 @@ def _knee_profile_and_grammar(exercise_db):
 
 
 def test_llm_backend_receives_enum_masked_schema(exercise_db) -> None:
-    """下发给模型的 schema，enum 必须恰好等于允许集。"""
+    """下发给模型的 schema，每个阶段的 enum 必须收敛到该阶段的候选集。
+
+    v2 语义：enum 不再等于全局允许集，而是逐阶段收紧 —— 模型不仅无法输出
+    禁忌动作，也无法把「拉伸动作」塞进主项段。
+    """
     profile, grammar = _knee_profile_and_grammar(exercise_db)
     captured = {}
 
@@ -198,9 +202,21 @@ def test_llm_backend_receives_enum_masked_schema(exercise_db) -> None:
 
     PlanAgent(llm_plan_fn=fake_llm).generate(profile, grammar, "full_body")
 
-    enum = captured["schema"]["schema"]["properties"]["warm_up"]["items"]["properties"]["exercise_id"]["enum"]
-    assert set(enum) == set(profile.allowed_ids)
-    assert not (set(enum) & set(profile.forbidden_reasons))
+    props = captured["schema"]["schema"]["properties"]
+    for phase in PHASES:
+        enum = set(props[phase]["items"]["properties"]["exercise_id"]["enum"])
+        # ① 不含任何禁忌动作
+        assert not (enum & set(profile.forbidden_reasons)), phase
+        # ② 是允许集的子集
+        assert enum <= set(profile.allowed_ids), phase
+        # ③ 与该阶段的可解码集合完全一致（既没漏也没多）
+        assert enum == set(grammar.phase_allowed_ids(phase)), phase
+
+    # 热身段的 enum 必须全部是阶段归属包含 warm_up 的动作
+    warm = set(props["warm_up"]["items"]["properties"]["exercise_id"]["enum"])
+    assert warm, "热身段 enum 不应为空"
+    assert all(grammar.phase_matches(eid, "warm_up") for eid in warm)
+
     assert captured["schema"]["strict"] is True
     # 请求体里也不得出现伤病原文
     dumped = json.dumps(captured["payload"], ensure_ascii=False)
@@ -211,7 +227,11 @@ def test_llm_backend_rejects_forbidden_ids_at_parse(exercise_db) -> None:
     """模型即便吐了禁忌 ID，解析阶段就要挡回，绝不进 draft。"""
     profile, grammar = _knee_profile_and_grammar(exercise_db)
     forbidden = sorted(profile.forbidden_reasons)[:3]
-    good = list(profile.allowed_ids)[:3]
+    # 显式挑一个属于 main_lifts 的允许动作，避免依赖 ID 顺序
+    good = [
+        eid for eid in profile.allowed_ids if grammar.phase_matches(eid, "main_lifts")
+    ][:1]
+    assert good, "该档案下主项段应有候选"
 
     def rogue_llm(payload, schema):
         return {

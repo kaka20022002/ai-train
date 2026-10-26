@@ -12,10 +12,11 @@ from typing import Any, Dict, List, Optional, Sequence
 from agents.contracts import PHASES, PlanDraft, RiskProfile, SafetyReport, Slot
 from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
 from agents.plan_agent import PHASE_PRESCRIPTION, PlanAgent
+from agents.prescription import prescribe, phase_impact_limit, phase_quota
 from agents.safety_agent import SafetyEvalAgent
 from agents.state_agent import StateRiskAgent
 
-PIPELINE_VERSION = "pipeline/1.0.0"
+PIPELINE_VERSION = "pipeline/1.1.0"
 
 
 @dataclass
@@ -148,31 +149,32 @@ def run_pipeline(
 
 
 def _repair(draft: PlanDraft, grammar: RiskGrammar, report: SafetyReport) -> PlanDraft:
-    """丢掉违规槽位，并从文法候选集补位 —— 补位过程天然不会引入禁忌动作。"""
+    """丢掉违规槽位，并从文法候选集补位 —— 补位过程天然不会引入禁忌动作。
+
+    补位同样走阶段硬过滤与处方推导，否则修复回合会把「力量动作」塞回热身段。
+    """
     bad = {(v.phase, v.exercise_id) for v in report.violations if v.phase in PHASES}
     phases: Dict[str, List[Slot]] = {}
     used = [s.exercise_id for p, s in draft.iter_slots() if (p, s.exercise_id) not in bad]
 
     for phase in PHASES:
         keep = [s for s in draft.phases.get(phase, []) if (phase, s.exercise_id) not in bad]
-        target = max(len(keep), PHASE_PRESCRIPTION[phase]["count"]) if phase != "warm_up" else len(keep)
-        spec = PHASE_PRESCRIPTION[phase]
+        target = max(len(keep), phase_quota(phase)) if phase != "warm_up" else len(keep)
+        stage_cap = min(phase_impact_limit(phase), grammar.profile.impact_ceiling)
         if len(keep) < target:
-            for eid in grammar.candidates(phase, exclude=used):
+            pool = grammar.candidates(phase, exclude=used, allow_fallback=True)
+            for eid in pool:
                 if len(keep) >= target:
                     break
-                if grammar.impact_of(eid) > min(spec["max_impact"], grammar.profile.impact_ceiling):
+                if grammar.impact_of(eid) > stage_cap:
                     continue
+                pres = prescribe(phase, grammar.index.get(eid) or {}, grammar.profile.load_pct_cap)
                 keep.append(
                     Slot(
                         exercise_id=eid,
-                        sets=int(spec["sets"]),
-                        reps=str(spec["reps"]),
-                        load_pct=(
-                            None
-                            if spec["load_pct"] is None
-                            else min(spec["load_pct"], grammar.profile.load_pct_cap or 100)
-                        ),
+                        sets=pres.sets,
+                        reps=pres.reps,
+                        load_pct=pres.load_pct,
                         impact=grammar.impact_of(eid),
                     )
                 )

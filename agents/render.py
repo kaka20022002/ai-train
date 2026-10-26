@@ -7,6 +7,11 @@ load_pct, impact}``，动作名称、休息时长、目标肌群这些「给人�
 
 产物结构与 ``PlanGeneratorMock.export_plan_as_json`` 完全对齐，
 因此可以直接复用现有的响应模型、落库逻辑与前端类型。
+
+v2 变更：
+    - 补 ``name_zh``（后端权威中文名，前端映射表之外的第二层保障）
+    - 休息时长按阶段与动作性质区分，不再一律 60 秒
+    - 总时长按「计时动作算秒、次数动作算次数×3 秒」估算，不再统一按 45 秒
 """
 from __future__ import annotations
 
@@ -14,8 +19,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from agents.contracts import PHASES, PlanDraft, RiskProfile, SafetyReport
+from agents.prescription import is_bodyweight, prescribe
 
-RENDERER_VERSION = "agents_render/1.0.0"
+RENDERER_VERSION = "agents_render/2.0.0"
 
 # 阶段 → (是否为主项, 备注)
 PHASE_LABELS: Dict[str, str] = {
@@ -26,21 +32,49 @@ PHASE_LABELS: Dict[str, str] = {
     "cool_down": "放松",
 }
 
+# 阶段 → 组间休息秒数（主项按水平再细分）
+_STAGE_REST: Dict[str, int] = {
+    "warm_up": 20,
+    "activation": 30,
+    "main_lifts": 90,
+    "accessories": 60,
+    "cool_down": 10,
+}
 
-def _rest_seconds(phase: str, fitness_level: str) -> int:
-    """休息时长沿用旧生成器的口径，避免前端表现突变。"""
-    if phase == "main_lifts":
-        return 90 if fitness_level != "beginner" else 120
-    return 60
+
+def _rest_seconds(phase: str, fitness_level: str, meta: Dict[str, Any]) -> int:
+    """休息时长按阶段区分；拉伸几乎不休息，主项新手多休息 30 秒。"""
+    base = _STAGE_REST.get(phase, 60)
+    if phase == "main_lifts" and fitness_level == "beginner":
+        base += 30
+    if meta.get("type") == "Stretch":
+        return 10
+    return base
 
 
-def _estimate_duration(phases: Dict[str, List[Dict[str, Any]]], rest_of: Dict[int, int]) -> int:
-    """粗略估算总时长：每组 45 秒动作 + 组间休息，按分钟向上取整。"""
+def _slot_seconds(slot: Dict[str, Any], meta: Dict[str, Any]) -> int:
+    """估算一个动作占用的秒数：计时动作按保持时长，计次动作按次数×3 秒。"""
+    sets = max(1, int(slot["sets"]))
+    reps = str(slot["reps"])
+    if meta.get("is_timed") or ("秒" in reps or "second" in reps.lower()):
+        hold = 30
+        digits = "".join(ch for ch in reps.split("-")[0] if ch.isdigit())
+        if digits:
+            hold = int(digits)
+        work = hold * sets
+    else:
+        num = "".join(ch for ch in reps.split("-")[0] if ch.isdigit())
+        per_rep = 3
+        work = int(num or 10) * per_rep * sets
+    return work + int(slot["rest_seconds"]) * max(0, sets - 1)
+
+
+def _estimate_duration(phases: Dict[str, List[Dict[str, Any]]]) -> int:
+    """粗略估算总时长（分钟，向上取整）。"""
     total = 0
     for slots in phases.values():
         for slot in slots:
-            rest = rest_of.get(id(slot), 60)
-            total += int(slot["sets"]) * (45 + rest)
+            total += int(slot.get("_seconds") or 0)
     return max(1, round(total / 60))
 
 
@@ -55,28 +89,34 @@ def render_plan_draft(
 ) -> Dict[str, Any]:
     """渲染为与旧生成器一致的导出结构。"""
     phases: Dict[str, List[Dict[str, Any]]] = {p: [] for p in PHASES}
-    rest_of: Dict[int, int] = {}
 
     for phase in PHASES:
         for slot in draft.phases.get(phase, []):
             meta = exercise_index.get(slot.exercise_id, {})
+            rest = _rest_seconds(phase, fitness_level, meta)
             item = {
                 "name": meta.get("name", f"Exercise #{slot.exercise_id}"),
+                "name_zh": meta.get("name_zh") or None,
                 "sets": slot.sets,
                 "reps": slot.reps,
-                "rest_seconds": _rest_seconds(phase, fitness_level),
-                "notes": _slot_note(phase, slot, meta),
+                "rest_seconds": rest,
+                "notes": _slot_note(phase, slot, meta, profile),
                 "target_muscle": meta.get("target_muscle") or "Multiple",
             }
+            item["_seconds"] = _slot_seconds(item, meta)
             phases[phase].append(item)
-            rest_of[id(item)] = item["rest_seconds"]
+
+    duration = _estimate_duration(phases)
+    for slots in phases.values():
+        for it in slots:
+            it.pop("_seconds", None)
 
     return {
         "plan_id": draft.plan_id,
         "user_id": draft.user_id,
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "workout_type": draft.workout_type or workout_type,
-        "estimated_duration_minutes": _estimate_duration(phases, rest_of),
+        "estimated_duration_minutes": duration,
         "phases": phases,
         "safety_notes": build_safety_notes(profile, report, draft),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -84,15 +124,18 @@ def render_plan_draft(
     }
 
 
-def _slot_note(phase: str, slot: Any, meta: Dict[str, Any]) -> Optional[str]:
+def _slot_note(phase: str, slot: Any, meta: Dict[str, Any], profile: RiskProfile) -> Optional[str]:
     """给单条动作补一句上下文，只在确有信息时输出。"""
+    pres = prescribe(phase, meta, profile.load_pct_cap)
     parts: List[str] = []
     if slot.load_pct is not None:
         parts.append(f"强度 {slot.load_pct}%")
-    if phase in ("warm_up", "cool_down") and meta.get("type") == "Isometric":
-        parts.append("等长保持，按时间计而非次数")
+    elif is_bodyweight(meta) and phase in ("main_lifts", "accessories"):
+        parts.append("自重动作，无需负重")
+    if pres.note:
+        parts.append(pres.note)
     if slot.impact >= 4:
-        parts.append("高冲击动作，注意动作质量优先于负荷")
+        parts.append("高冲击动作，动作质量优先于负荷")
     return "；".join(parts) if parts else None
 
 

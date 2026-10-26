@@ -213,6 +213,10 @@ class GeneratePlanRequest(BaseModel):
 class ExerciseResponse(BaseModel):
     """Schema for exercise in response."""
     name: str
+    name_zh: Optional[str] = Field(
+        None,
+        description="Chinese display name; frontend may fall back to its own label map",
+    )
     sets: int
     reps: str
     rest_seconds: int
@@ -730,7 +734,8 @@ async def list_exercises(
     
     **Query Parameters:**
     - `muscle_group`: Filter by target muscle (e.g., "Quadriceps", "Pectorals")
-    - `exercise_type`: Filter by type ("Compound", "Isolation", "Isometric")
+    - `exercise_type`: Filter by type — Compound / Isolation / Isometric
+      （训练动作）或 Warmup / Stretch / Activation（热身、拉伸、激活）
     - `max_risk_level`: Only return exercises with risk_level <= this value (1-5)
     """
     

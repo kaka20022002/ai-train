@@ -14,6 +14,9 @@ evaluation_results.csv
 *.db-journal
 .cache/
 
+# 动作库扩充脚本生成的一次性回滚点（保留在本地，不入库）
+exercise_db.backup.json
+
 # Frontend
 frontend/node_modules/
 frontend/.next/

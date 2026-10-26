@@ -140,6 +140,10 @@ _INTENSITY_NOTES: Dict[str, str] = {
 }
 
 # Exercise categorisation by target_muscle
+# 只有这些类型算「训练动作」。Warmup / Stretch / Activation 属于课前课后环节，
+# 由单次计划的三 Agent 管线负责编排，不进周期计划的训练日动作池。
+_TRAINING_TYPES = frozenset({"Compound", "Isolation", "Isometric"})
+
 _MUSCLE_CATEGORY: Dict[str, str] = {
     "Quadriceps":       "lower",
     "Hamstrings":       "lower",
@@ -556,6 +560,10 @@ class ProgramGeneratorService:
         """
         Build a {category → [exercise_dict]} pool from the safe exercise list.
         Compound exercises are preferred for main lifts.
+
+        只收「训练动作」。动作库现在同时包含热身（Warmup）、静态拉伸（Stretch）
+        与激活（Activation）动作，它们属于课前/课后环节，不是训练日的正式动作 ——
+        放进这个池会被当成主项（例如「颈侧拉伸 3 组 × 8 次」），所以在此过滤掉。
         """
         pool: Dict[str, List[Dict]] = {
             "push": [], "pull": [], "lower": [], "core": [], "compound": []
@@ -565,6 +573,8 @@ class ProgramGeneratorService:
         for ex_name in safe_exercises:
             ex = name_to_ex.get(ex_name)
             if not ex:
+                continue
+            if ex.get("type") not in _TRAINING_TYPES:
                 continue
             muscle = ex.get("target_muscle", "")
             cat = _MUSCLE_CATEGORY.get(muscle, "compound")

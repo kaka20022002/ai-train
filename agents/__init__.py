@@ -12,10 +12,12 @@
 模块划分：
     contracts      数据契约（唯一跨 Agent 传输格式）
     grammar        风险条件约束解码（编译 + 校验 + 候选采样）
+    prescription   处方推导（动作类型 × 阶段 → 组数/次数/强度）
     state_agent    状态与风险分析 Agent
     plan_agent     计划生成 Agent
     safety_agent   计划安全评估 Agent
     pipeline       编排与审计
+    render         结构化产物 → 对外 JSON
 """
 
 from agents.contracts import (
@@ -27,6 +29,7 @@ from agents.contracts import (
 )
 from agents.grammar import RiskGrammar, build_exercise_index, compile_risk_grammar
 from agents.pipeline import GenerationResult, PipelineAudit, run_pipeline
+from agents.prescription import Prescription, prescribe
 from agents.render import build_safety_notes, render_plan_draft
 from agents.plan_agent import PlanAgent
 from agents.safety_agent import SafetyEvalAgent
@@ -44,6 +47,8 @@ __all__ = [
     "GenerationResult",
     "PipelineAudit",
     "run_pipeline",
+    "Prescription",
+    "prescribe",
     "render_plan_draft",
     "build_safety_notes",
     "PlanAgent",

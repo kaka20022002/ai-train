@@ -11,26 +11,73 @@
     deterministic —— 从文法候选集中采样，禁忌动作不在采样空间内
     llm           —— 下发以允许 ID 为 enum 的 JSON Schema（结构化输出），
                      解码阶段即 mask；若模型仍越界，由 SafetyEvalAgent 拦下
+
+v2 变更（处方质量）：
+    1. 参数不再来自五张固定常量表，改由 ``prescription.prescribe`` 按
+       「动作类型 × 阶段」推导 —— 拉伸给秒数、等长给秒数、复合给低次数高强度。
+    2. 阶段内选动作时按 ``motion_pattern`` 配平，避免辅助段被同类动作（弯举 /
+       下压）占满，也避免主项段三个动作全是同一个动作模式。
+    3. 候选不足时逐级放宽：先放宽阶段内 impact，再放宽阶段归属，两次放宽都
+       不越过档案上限。
 """
 from __future__ import annotations
 
 import random
 import uuid
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from agents.contracts import PHASES, PlanDraft, RiskProfile, Slot
 from agents.grammar import RiskGrammar
+from agents.prescription import (
+    PHASE_COUNT,
+    PHASE_MAX_IMPACT,
+    prescribe,
+    phase_impact_limit,
+    phase_quota,
+)
 
-# 各阶段的处方模板：(sets, reps, load_pct 基准)
+# 兼容旧引用：pipeline 等处仍按 ``PHASE_PRESCRIPTION[phase]["count"]`` 取数量
 PHASE_PRESCRIPTION: Dict[str, Dict[str, Any]] = {
-    "warm_up": {"count": 3, "sets": 2, "reps": "15", "load_pct": 40, "max_impact": 2},
-    "activation": {"count": 3, "sets": 2, "reps": "15", "load_pct": 35, "max_impact": 2},
-    "main_lifts": {"count": 3, "sets": 4, "reps": "6-8", "load_pct": 75, "max_impact": 4},
-    "accessories": {"count": 4, "sets": 3, "reps": "10-12", "load_pct": 55, "max_impact": 3},
-    "cool_down": {"count": 3, "sets": 1, "reps": "30 seconds", "load_pct": None, "max_impact": 1},
+    phase: {"count": PHASE_COUNT[phase], "max_impact": PHASE_MAX_IMPACT[phase]}
+    for phase in PHASES
 }
 
 LLMPlanFn = Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]
+
+
+def _pattern_of(index: Dict[int, Dict[str, Any]], eid: int) -> str:
+    meta = index.get(eid) or {}
+    return str(meta.get("motion_pattern") or meta.get("type") or "other")
+
+
+def pick_diverse(
+    pool: Sequence[int],
+    quota: int,
+    index: Dict[int, Dict[str, Any]],
+) -> List[int]:
+    """从候选池里挑 ``quota`` 个动作，优先覆盖不同的动作模式。
+
+    第一轮每种 ``motion_pattern`` 只取一个（池已打乱，所以具体取哪个是随机的），
+    第二轮再补满。这样辅助段不会出现「三个弯举」，主项段也不会出现
+    「深蹲 + 腿举 + 前蹲」这种同模式重复。
+    """
+    picked: List[int] = []
+    seen: set = set()
+    for eid in pool:
+        if len(picked) >= quota:
+            break
+        pat = _pattern_of(index, eid)
+        if pat in seen:
+            continue
+        seen.add(pat)
+        picked.append(eid)
+    if len(picked) < quota:
+        for eid in pool:
+            if len(picked) >= quota:
+                break
+            if eid not in picked:
+                picked.append(eid)
+    return picked
 
 
 class PlanAgent:
@@ -54,6 +101,47 @@ class PlanAgent:
                 return draft
         return self._generate_deterministic(profile, grammar, workout_type, seed)
 
+    # ── 候选池构建 ────────────────────────────────────────────────────────
+    def _build_pool(
+        self,
+        profile: RiskProfile,
+        grammar: RiskGrammar,
+        phase: str,
+        used: Sequence[int],
+        rng: random.Random,
+    ) -> List[int]:
+        """按「严格 → 放宽 impact → 放宽阶段」三级构建候选池。"""
+        ceiling = profile.impact_ceiling
+        stage_cap = min(phase_impact_limit(phase), ceiling)
+
+        strict = [
+            eid
+            for eid in grammar.candidates(phase, exclude=used, rng=rng)
+            if grammar.impact_of(eid) <= stage_cap
+        ]
+        pool = list(strict)
+
+        # 放宽 ①：阶段内 impact 上限放到档案上限（仍不越过档案）
+        if len(pool) < phase_quota(phase):
+            pool += [
+                eid
+                for eid in grammar.candidates(phase, exclude=used, rng=rng)
+                if eid not in pool and grammar.impact_of(eid) <= ceiling
+            ]
+
+        # 放宽 ②：该阶段候选被档案掏空时，允许借用其它阶段的动作兜底。
+        # 注意：仍然只在 allowed_ids 内，且仍受档案上限约束。
+        if len(pool) < phase_quota(phase):
+            loose = grammar.candidates(
+                phase, exclude=used, rng=rng, allow_fallback=True
+            )
+            pool += [
+                eid
+                for eid in loose
+                if eid not in pool and grammar.impact_of(eid) <= ceiling
+            ]
+        return pool
+
     # ── 确定性后端 ────────────────────────────────────────────────────────
     def _generate_deterministic(
         self,
@@ -67,35 +155,24 @@ class PlanAgent:
         used: List[int] = []
 
         for phase in PHASES:
-            spec = PHASE_PRESCRIPTION[phase]
-            picked: List[Slot] = []
-            # 只在文法候选集里取，且受 impact 上限二次裁剪
-            pool = [
-                eid
-                for eid in grammar.candidates(phase, exclude=used, rng=rng)
-                if grammar.impact_of(eid) <= min(spec["max_impact"], profile.impact_ceiling)
-            ]
-            # 阶段内候选不足（禁忌 + 去重后剩太少）时，放宽该阶段的 impact 限制补满，
-            # 但绝不越过档案上限 —— 否则会出现「放松段只有 1 个动作」这类残缺计划。
-            if len(pool) < spec["count"]:
-                extra = [
-                    eid
-                    for eid in grammar.candidates(phase, exclude=used, rng=rng)
-                    if eid not in pool and grammar.impact_of(eid) <= profile.impact_ceiling
-                ]
-                pool.extend(extra)
-            for eid in pool[: spec["count"]]:
-                picked.append(
+            pool = self._build_pool(profile, grammar, phase, used, rng)
+            picked = pick_diverse(pool, phase_quota(phase), grammar.index)
+
+            slots: List[Slot] = []
+            for eid in picked:
+                meta = grammar.index.get(eid) or {}
+                pres = prescribe(phase, meta, profile.load_pct_cap)
+                slots.append(
                     Slot(
                         exercise_id=eid,
-                        sets=int(spec["sets"]),
-                        reps=str(spec["reps"]),
-                        load_pct=_clamp_load(spec["load_pct"], profile.load_pct_cap),
+                        sets=pres.sets,
+                        reps=pres.reps,
+                        load_pct=pres.load_pct,
                         impact=grammar.impact_of(eid),
                     )
                 )
                 used.append(eid)
-            phases[phase] = picked
+            phases[phase] = slots
 
         return PlanDraft(
             plan_id=f"draft_{uuid.uuid4().hex[:10]}",
@@ -118,16 +195,18 @@ class PlanAgent:
         return {
             "workout_type": workout_type,
             "candidate_exercise_ids": list(grammar.allowed_ids),
+            "phase_candidates": {
+                phase: list(grammar.phase_allowed_ids(phase)) for phase in PHASES
+            },
             "joint_caps": dict(profile.joint_caps),
             "impact_ceiling": profile.impact_ceiling,
             "load_pct_cap": profile.load_pct_cap,
-            "phase_prescription": {
-                p: {
-                    "count": PHASE_PRESCRIPTION[p]["count"],
-                    "sets": PHASE_PRESCRIPTION[p]["sets"],
-                    "reps": PHASE_PRESCRIPTION[p]["reps"],
+            "phase_targets": {
+                phase: {
+                    "count": phase_quota(phase),
+                    "max_impact": phase_impact_limit(phase),
                 }
-                for p in PHASES
+                for phase in PHASES
             },
             "grammar_version": grammar.version,
             "profile_hash": profile.profile_hash,
@@ -156,15 +235,30 @@ class PlanAgent:
                 if not isinstance(item, dict) or "exercise_id" not in item:
                     continue
                 try:
-                    slot = Slot.from_dict(item)
+                    eid = int(item["exercise_id"])
                 except (TypeError, ValueError):
                     continue
                 # 第一层同样覆盖 LLM 输出：enum 被绕过（如返回提示词里的旧 ID）
                 # 时在解析处直接挡回，绝不让禁忌 ID 进入 draft。
-                if not grammar.is_allowed(slot.exercise_id):
-                    rejected.append(slot.exercise_id)
+                if not grammar.is_allowed(eid):
+                    rejected.append(eid)
                     continue
-                slots.append(slot)
+                # 阶段归属同样校验：把拉伸动作塞进主项段，即使 ID 合法也挡回。
+                if not grammar.phase_matches(eid, phase):
+                    rejected.append(eid)
+                    continue
+                # 参数不由模型决定，统一走处方推导 —— 模型只负责「选哪个、放哪段」。
+                # 否则模型会把平板支撑写成「4 组 8 次」，与动作性质矛盾。
+                pres = prescribe(phase, grammar.index.get(eid) or {}, profile.load_pct_cap)
+                slots.append(
+                    Slot(
+                        exercise_id=eid,
+                        sets=pres.sets,
+                        reps=pres.reps,
+                        load_pct=pres.load_pct,
+                        impact=grammar.impact_of(eid),
+                    )
+                )
             phases[phase] = slots
 
         return PlanDraft(
@@ -179,14 +273,6 @@ class PlanAgent:
         )
 
 
-def _clamp_load(load_pct: Optional[int], cap: Optional[int]) -> Optional[int]:
-    if load_pct is None:
-        return None
-    if cap is None:
-        return load_pct
-    return min(load_pct, cap)
-
-
 def describe_phases(draft: PlanDraft) -> str:
     """把草稿渲染成人看的文本 —— 只在管线最外层调用，不参与 Agent 通信。"""
     lines = [f"plan_id={draft.plan_id} generator={draft.generator}"]
@@ -196,4 +282,4 @@ def describe_phases(draft: PlanDraft) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["PlanAgent", "PHASE_PRESCRIPTION", "describe_phases"]
+__all__ = ["PlanAgent", "PHASE_PRESCRIPTION", "describe_phases", "pick_diverse"]
