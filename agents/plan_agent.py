@@ -268,21 +268,25 @@ class PlanAgent:
         catalog: ExerciseCatalog,
         workout_type: str,
     ) -> Dict[str, Any]:
-        """发给模型的请求体：全量目录 + 完整用户输入 + 上游基线。
+        """发给模型的请求体：全量目录 + 完整用户输入 + 阶段一的风险报告。
 
-        「基线」（``baseline``）是 Agent 1 用规则阈值表算出的禁忌与上限，
-        在这里降级成**参考证据**：模型可以判断某条禁忌对本次训练不适用，
-        但这么做要自己承担被审查驳回的风险。
+        三个上游输入按权威度排列：
+
+        ``risk_report``   阶段一的医学结论（判断层）。首要依据。
+        ``baseline``      同一结论的机器可执行版本（禁忌与硬上限）。下限。
+        用户需求与偏好     目标、器械、偏好、本次原话。决定"练什么"。
         """
         ctx = profile.user_context or {}
         payload: Dict[str, Any] = {
             "workout_type": workout_type,
             "fitness_level": profile.fitness_level or "beginner",
             "session_cap_minutes": profile.session_cap_minutes,
+            # 没有模型时它也是基线报告，形状始终完整 —— 下游不必判空
+            "risk_report": dict(profile.risk_report or {}),
             "exercise_catalog": catalog.rows(ctx.get("preferences") or {}),
             "baseline": {
-                "note": "上游规则阈值表给出的参考结论，不是硬约束；"
-                        "你可以做出不同判断，但请在 note 或 rationale 里能说清依据",
+                "note": "阶段一结论的机器可执行投影（禁忌清单与上限）：不是硬约束，"
+                        "但越线会被审查员逐条追问；与 risk_report 冲突时按更严的一方执行",
                 "forbidden_exercises": [
                     {"exercise_id": eid, "reason": reason}
                     for eid, reason in sorted(profile.forbidden_reasons.items())

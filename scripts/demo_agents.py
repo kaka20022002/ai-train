@@ -32,7 +32,7 @@ L.append("=" * 64)
 
 p = res.profile
 L.append("")
-L.append("【Stage 1】状态与风险分析 Agent 输出（结构化）")
+L.append("【Stage 1】身体状态评估 Agent 输出：风险报告 + 约束投影")
 L.append("  profile_hash : %s" % p.profile_hash)
 L.append("  允许动作     : %d 个" % len(p.allowed_ids))
 L.append("  禁止动作     : %d 个" % len(p.forbidden_reasons))
@@ -45,8 +45,21 @@ for r in p.rules[:8]:
 if len(p.rules) > 8:
     L.append("     … 另有 %d 条" % (len(p.rules) - 8))
 
+rep0 = p.risk_report or {}
+ov = rep0.get("overall") or {}
+L.append("  风险报告     : source=%s  level=%s  clearance=%s"
+         % (rep0.get("source", "-"), ov.get("risk_level", "-"), ov.get("clearance", "-")))
+if ov.get("summary"):
+    L.append("     %s" % ov["summary"])
+for inj in (rep0.get("injuries") or [])[:3]:
+    L.append("     · %s %s | impact_cap=%s | %s"
+             % (inj.get("location"), inj.get("condition") or "-",
+                inj.get("impact_cap"), inj.get("functional_impact") or "-"))
+for item in (rep0.get("watch_items") or [])[:3]:
+    L.append("     ! %s" % item)
+
 L.append("")
-L.append("【Stage 2】计划生成 Agent 输出（只有 exercise_id/sets/reps/load_pct/impact）")
+L.append("【Stage 2】计划生成 Agent 输出（读风险报告 + 需求，自己在全库里选）")
 L.append("  generator=%s   grammar=%s   槽位 %d 个"
          % (res.draft.generator, res.draft.grammar_version, res.draft.slot_count()))
 for phase in PHASES:
@@ -60,7 +73,7 @@ for phase in PHASES:
 
 rep = res.report
 L.append("")
-L.append("【Stage 3】安全评估 Agent 输出")
+L.append("【Stage 3】计划审查 Agent 输出（安全标准 + 是否适合这位用户）")
 L.append("  通过         : %s" % ("是 ✅" if rep.passed else "否 ❌"))
 L.append("  校验槽位     : %d" % rep.checked_slots)
 L.append("  违规         : %d 条" % len(rep.violations))

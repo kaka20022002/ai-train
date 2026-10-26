@@ -210,6 +210,9 @@ class SafetyEvalAgent:
                 },
             },
             "session_cap_minutes": profile.session_cap_minutes,
+            # 阶段一的报告：第三个验收维度「是否符合这位用户的身体状况」
+            # 就是拿计划逐条对这份报告
+            "risk_report": dict(profile.risk_report or {}),
             "baseline_flags": [v.to_dict() for v in flags],
             "baseline_constraints": {
                 "forbidden_exercises": [
@@ -287,6 +290,14 @@ class SafetyEvalAgent:
                             f"{joint} 上限 {cap}，动作 impact={impact}",
                         )
                     )
+            pattern = str(meta.get("motion_pattern") or "").lower()
+            if pattern and pattern in profile.avoid_patterns:
+                flags.append(
+                    Violation(
+                        "REPORT_BREACH", slot.exercise_id, phase,
+                        f"动作模式 {pattern} 在风险报告的回避清单里",
+                    )
+                )
             if (
                 slot.load_pct is not None
                 and profile.load_pct_cap is not None

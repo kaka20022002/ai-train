@@ -1,10 +1,14 @@
 """编排层 —— 三个 Agent 串行执行，只传结构化字段。
 
-v3 编排（去掉中间规则层之后的形状）：
+v4 编排（三阶段语义）：
 
-    state_risk   病历 + 反馈 + 需求  →  RiskProfile（含基线禁忌清单、病历语义）
-    plan_gen     全量动作库          →  PlanDraft（模型自己决定选删与剂量）
-    safety_eval  计划 + 病历 + 基线   →  SafetyReport（模型裁决）
+    阶段一  state_risk   身体情况（病历 + 反馈 + 需求）→ 风险报告 risk_report
+                         （判断：整体风险等级 / 能否开练 / 每条伤情的禁忌 /
+                           剂量口径 / 要盯的信号）+ 机器可执行投影（约束集）
+    阶段二  plan_gen     风险报告 + 用户需求 + 全量动作库 → PlanDraft
+                         （模型自己决定选动作、顺序、组次、负荷、休息）
+    阶段三  safety_eval  计划 + 风险报告 → SafetyReport
+                         （判两件事：符合通用安全标准吗？适合这位用户吗？）
     ↓ fail 则把违规清单回灌给 plan_gen 重写，最多 max_review 轮
 
 与 v2 的差别只有一句话：**中间不再有任何一层规则替 Agent 做决定**。
@@ -132,6 +136,16 @@ def run_pipeline(
             "user_context": dict(profile.user_context or {}),
             "avoid_patterns": list(profile.avoid_patterns),
             "session_cap_minutes": profile.session_cap_minutes,
+            "risk_report": {
+                "source": (profile.risk_report or {}).get("source"),
+                "risk_level": profile.risk_level,
+                "clearance": profile.clearance,
+                "injuries": len((profile.risk_report or {}).get("injuries") or []),
+                "watch_items": len((profile.risk_report or {}).get("watch_items") or []),
+                "dose_guidance_keys": sorted(
+                    ((profile.risk_report or {}).get("dose_guidance") or {}).keys()
+                ),
+            },
             "llm": {
                 "status": profile.llm_status or "skipped",
                 "prompt_version": profile.llm_prompt_version,
@@ -155,6 +169,7 @@ def run_pipeline(
             "catalog_size": len(catalog),
             "workout_type": workout_type,
             "backend": "llm" if agent.can_revise else "deterministic",
+            "risk_report_source": (profile.risk_report or {}).get("source"),
         },
         {
             "plan_id": draft.plan_id,
@@ -177,6 +192,7 @@ def run_pipeline(
             "profile_hash": profile.profile_hash,
             "review_mode": report.review_mode,
             "baseline_flags": len(report.baseline_flags),
+            "risk_report_source": (profile.risk_report or {}).get("source"),
         },
         report.to_dict(),
     )

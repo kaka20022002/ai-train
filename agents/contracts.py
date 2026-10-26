@@ -36,6 +36,7 @@ VIOLATION_CODES: Dict[str, str] = {
     "RECOVERY": "恢复安排不足",
     "CONTRAINDICATION": "病历明示但基线谓词未覆盖的禁忌",
     "EQUIPMENT_UNAVAILABLE": "使用了用户没有的器械（可执行性问题）",
+    "REPORT_BREACH": "违反阶段一风险报告明确列出的限制",
 }
 
 # 基线谓词判得出（模型也能补充判断）与只能由模型判断的维度
@@ -49,6 +50,8 @@ BASELINE_CODES = frozenset(
         "DUPLICATE",
         "STALE_PROFILE",
         "EQUIPMENT_UNAVAILABLE",
+        # 动作模式禁忌能机械比对；报告里那些只能靠阅读的限制不在此列
+        "REPORT_BREACH",
     }
 )
 
@@ -151,6 +154,13 @@ class RiskProfile:
     # 结构化字段：目标、器械、偏好、本次需求。故意不进 profile_hash：
     # 换目标或换器械不会让已生成的计划变得「过期」，合规性也不因此改变。
     user_context: Dict[str, Any] = field(default_factory=dict)
+    # ── 阶段一的对外产物：风险报告 ────────────────────────────────────────
+    # 上面那些字段是「结论的机器可执行投影」，这份报告才是给下游 Agent 和
+    # 用户看的**判断本身**：整体风险等级、能否开练、每条伤情的功能影响、
+    # 明确禁忌、剂量口径、需要盯的信号。
+    # 故意不进 profile_hash：报告含叙述文本，同输入重跑一次措辞就会变，
+    # 不能让 hash 抖动导致下游误判 STALE_PROFILE。
+    risk_report: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.allowed_ids = tuple(sorted(int(i) for i in self.allowed_ids))
@@ -165,6 +175,15 @@ class RiskProfile:
         )
         if not self.profile_hash:
             self.profile_hash = self.compute_hash()
+
+    # ── 风险报告的两个高频取值（下游不必层层 .get）────────────────────────
+    @property
+    def risk_level(self) -> str:
+        return str((self.risk_report or {}).get("overall", {}).get("risk_level") or "")
+
+    @property
+    def clearance(self) -> str:
+        return str((self.risk_report or {}).get("overall", {}).get("clearance") or "")
 
     def compute_hash(self) -> str:
         payload = {
@@ -200,6 +219,7 @@ class RiskProfile:
             "progression_note": self.progression_note,
             "capacity_note": self.capacity_note,
             "user_context": dict(self.user_context),
+            "risk_report": dict(self.risk_report or {}),
         }
 
 

@@ -1,28 +1,31 @@
-"""Agent 1 —— 状态与风险分析。
+"""Agent 1 —— 身体状态评估：产出**风险报告**。
 
-职责边界（刻意收窄）：
-    输入：用户档案（dict）、可选训练反馈（dict）
-    输出：``RiskProfile`` —— 禁忌清单、关节上限、阈值、病历语义约束
-           **不产出任何自然语言**，也不产出计划。
+职责边界：
+    输入：完整用户档案（含病历原文）、可选训练反馈、本次需求
+    输出：``RiskProfile``，其中 ``risk_report`` 是对外的那份报告
 
-v3 变更（规则降级为「基线证据」）：
+三阶段语义（v4）：
+    阶段一 读身体情况 → 风险报告（判断：能不能练、哪里不能练、怎么练）
+    阶段二 读报告 + 需求 → 计划
+    阶段三 读计划 + 报告 → 是否合格
 
-    上一版里，这里算出的 ``forbidden_reasons`` 会被编译成文法，物理性地把
-    禁忌动作从生成端移走。现在不再这么做 —— 生成端拿到全库，这份清单以
-    ``baseline`` 的名义作为**参考证据**传下去，由生成端自行取舍、由审查端
-    裁决。规则仍然算，只是不再一票否决。
+报告与约束是**同一判断的两种形态**，不重复计算：
 
-    因此本 Agent 的产出有两个身份：
-        对生成端   一份「我认为这些动作有风险，理由在此」的提示
-        对审查端   一份「可核对的清单」，用来交叉检查生成端是否越线
+    risk_report      给人读、给下游 Agent 读的判断
+                     （整体风险等级 / 能否开练 / 每条伤情的功能影响与禁忌 /
+                       剂量口径 / 要盯的信号）
+    profile 字段     同一判断的机器可执行投影
+                     （allowed_ids / forbidden_reasons / joint_caps /
+                       impact_ceiling / load_pct_cap / avoid_patterns / 时长上限）
 
-    LLM 通道保持「只能更严」：它提议移除禁忌、或把上限调高，都会被静默丢弃
-    并计入 ``llm_status``。理由不变 —— 上游一旦可以被放宽，
-    ``forbidden`` 这份证据就失去了可信度。
+两者都由这里产出，所以不会出现「报告说能做、约束说不能做」的分裂。规则先给
+一份基线报告（``source="baseline"``），能连模型时由模型改写或补全
+（``source="agent"``）；模型一旦缺席，报告退回基线，但**形状不变** ——
+下游两个 Agent 永远拿得到一份报告，不必到处判空。
 
-    LLM 的真实收益是规则表结构性看不到的东西：病历自由文本
-    （"右膝 ACL 术后两年，深蹲到不了底"）、多条伤情叠加后的整体保守需求。
-    因此只把「涉及受伤关节的动作」发给它，而不是整库 77 条。
+LLM 通道对**约束**仍然只能更严（提议放宽会被静默丢弃并计入 ``llm_status``）。
+对**报告**则允许改写判断：报告是意见，约束才是可执行的下限 —— 意见可以
+不同，下限不能松动。
 """
 from __future__ import annotations
 
@@ -46,6 +49,18 @@ SEVERITY_THRESHOLD: Dict[str, int] = {
 
 EnhanceFn = Callable[[Dict[str, Any]], Dict[str, Any]]
 
+# 风险报告的两个枚举维度 —— 模型给的自由措辞一律归一到这里
+RISK_LEVELS: Tuple[str, ...] = ("low", "moderate", "high", "very_high")
+CLEARANCES: Tuple[str, ...] = ("cleared", "conditional", "not_cleared")
+
+_SEVERITY_RANK: Dict[str, int] = {"low": 1, "medium": 2, "high": 3}
+
+# 报告是给用户看的，关节名不能直接甩英文；未收录的原样保留（不猜）
+_JOINT_ZH: Dict[str, str] = {
+    "knee": "膝", "back": "腰背", "lower_back": "下背", "shoulder": "肩",
+    "ankle": "踝", "hip": "髋", "elbow": "肘", "wrist": "腕", "neck": "颈",
+}
+
 
 class StateRiskAgent:
     """状态与风险分析 Agent。"""
@@ -68,7 +83,7 @@ class StateRiskAgent:
         workout_type: str = "full_body",
         query: Optional[str] = None,
     ) -> RiskProfile:
-        """规则算基线 → 组装用户上下文 →（可选）LLM 语义补充。
+        """规则算基线 → 组装上下文 → 基线风险报告 →（可选）模型改写报告。
 
         ``workout_type`` 与 ``query`` 会一并进入上下文：同样是膝伤，
         「今天练腿」和「今天练上肢」的风险权重完全不同，模型需要知道
@@ -79,6 +94,8 @@ class StateRiskAgent:
             base,
             user_context=self._build_user_context(user_profile, workout_type, query),
         )
+        # 报告在调模型**之前**就要成型：模型失败时下游仍拿得到一份完整报告
+        base = replace(base, risk_report=self._baseline_report(base))
         if self._llm_enhance_fn is None:
             return self._finalize(replace(base, llm_status="skipped"))
         return self._finalize(self._enhance(base, user_profile, feedback))
@@ -90,6 +107,191 @@ class StateRiskAgent:
         if overlap:
             raise AssertionError(f"允许集与禁忌集重叠: {sorted(overlap)[:5]}")
         return profile
+
+    # ── 风险报告 ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _baseline_report(profile: RiskProfile) -> Dict[str, Any]:
+        """规则算出的基线报告 —— 报告的**形状**由它定义。
+
+        规则能给的是「有哪几处伤、各自什么程度、对应多严的冲击上限」，
+        给不了「这个动作为什么不行」「这周该练多少」。后者留空由模型补，
+        而不是编一段模板话术糊过去 —— 空的字段在审查端是「未评估」，
+        编出来的字段是「错误的安全感」。
+        """
+        ctx = profile.user_context or {}
+        history = [h for h in (ctx.get("medical_history") or []) if isinstance(h, dict)]
+
+        injuries: List[Dict[str, Any]] = []
+        for item in history[:6]:
+            joint = str(item.get("location") or "").strip().lower()
+            injuries.append(
+                {
+                    "location": joint or "unspecified",
+                    "condition": str(item.get("condition") or "")[:80],
+                    "severity": str(item.get("severity") or "").lower(),
+                    # 规则读不懂叙述，但病历里的 notes / pain_trigger 至少能原样带出
+                    "functional_impact": str(
+                        item.get("notes") or item.get("pain_trigger") or ""
+                    )[:160],
+                    "contraindications": [],
+                    "safe_substitutes": [],
+                    "impact_cap": profile.joint_caps.get(joint),
+                    "load_pct_ceiling": profile.load_pct_cap,
+                    "source": "baseline",
+                }
+            )
+
+        worst = max(
+            (_SEVERITY_RANK.get(str(h.get("severity") or "").lower(), 0) for h in history),
+            default=0,
+        )
+        risk_level = {3: "high", 2: "moderate"}.get(worst, "low")
+
+        if not profile.allowed_ids:
+            clearance = "not_cleared"
+        elif profile.joint_caps or profile.avoid_patterns or profile.forbidden_reasons:
+            clearance = "conditional"
+        else:
+            clearance = "cleared"
+
+        if injuries:
+            joints = "、".join(
+                sorted({_JOINT_ZH.get(i["location"], i["location"]) for i in injuries})
+            )
+            summary = (
+                f"规则基线：{len(injuries)} 处伤情（{joints}），"
+                f"冲击等级上限 {profile.impact_ceiling}"
+            )
+        else:
+            summary = f"规则基线：未录入伤情，冲击等级上限 {profile.impact_ceiling}"
+
+        # 只写规则能负责的那句：出现疼痛就停。不编剂量口径。
+        watch_items = [
+            f"训练中{_JOINT_ZH.get(joint, joint)}部出现疼痛立即停止该动作"
+            for joint in sorted(profile.joint_caps)[:4]
+        ]
+
+        return {
+            "source": "baseline",
+            "overall": {
+                "risk_level": risk_level,
+                "clearance": clearance,
+                "summary": summary[:200],
+            },
+            "injuries": injuries,
+            "dose_guidance": {},
+            "watch_items": watch_items,
+            "rationale": "",
+        }
+
+    @classmethod
+    def _merge_report(
+        cls,
+        base_report: Dict[str, Any],
+        raw: Dict[str, Any],
+        profile: RiskProfile,
+    ) -> Tuple[Dict[str, Any], bool]:
+        """把模型给的报告并入基线报告，返回 (报告, 是否改写了)。
+
+        两处刻意不对称：
+        - ``clearance`` / ``risk_level`` 只能**更保守**。模型可以比基线严，
+          不能比基线松 —— 松的那一侧由约束兜着，报告若比约束乐观就自相矛盾。
+        - ``injuries`` / ``dose_guidance`` / ``watch_items`` 允许整体替换，
+          这部分正是规则算不出来的，模型说什么就是什么（逐条做类型收敛）。
+        """
+        overall_raw = raw.get("overall") if isinstance(raw.get("overall"), dict) else {}
+        level = _pick_enum(overall_raw.get("risk_level"), RISK_LEVELS)
+        clearance = _pick_enum(overall_raw.get("clearance"), CLEARANCES)
+        summary = str(overall_raw.get("summary") or "").strip()[:200]
+
+        injuries = cls._normalize_injuries(raw.get("injuries"), profile)
+        dose = cls._normalize_dose(raw.get("dose_guidance"))
+        watch = [
+            str(w).strip()[:80]
+            for w in (raw.get("watch_items") or [])
+            if str(w).strip()
+        ][:5]
+
+        if not (level or clearance or summary or injuries or dose or watch):
+            return base_report, False
+
+        base_overall = dict(base_report.get("overall") or {})
+        return (
+            {
+                "source": "agent",
+                "overall": {
+                    # 取更保守的一侧
+                    "risk_level": _stricter(base_overall.get("risk_level"), level, RISK_LEVELS),
+                    "clearance": _stricter(
+                        base_overall.get("clearance"), clearance, CLEARANCES
+                    ),
+                    "summary": summary or base_overall.get("summary", ""),
+                },
+                "injuries": injuries or list(base_report.get("injuries") or []),
+                "dose_guidance": dose or dict(base_report.get("dose_guidance") or {}),
+                "watch_items": watch or list(base_report.get("watch_items") or []),
+                "rationale": str(raw.get("rationale") or "")[:400],
+            },
+            True,
+        )
+
+    @staticmethod
+    def _normalize_injuries(
+        raw_injuries: Any, profile: RiskProfile
+    ) -> List[Dict[str, Any]]:
+        """逐条收敛：只保留约定字段，上限取「模型建议」与「机器约束」中更严的。"""
+        if not isinstance(raw_injuries, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in raw_injuries[:6]:
+            if not isinstance(item, dict):
+                continue
+            location = str(item.get("location") or "").strip().lower()
+            cap = _as_optional_int(item.get("impact_cap"))
+            profile_cap = profile.joint_caps.get(location)
+            if cap is not None and profile_cap is not None:
+                cap = min(cap, profile_cap)
+            elif cap is None:
+                cap = profile_cap
+            ceiling = _as_optional_int(item.get("load_pct_ceiling"))
+            if ceiling is None:
+                ceiling = profile.load_pct_cap
+            elif profile.load_pct_cap is not None:
+                ceiling = min(ceiling, profile.load_pct_cap)
+
+            out.append(
+                {
+                    "location": location or "unspecified",
+                    "condition": str(item.get("condition") or "")[:80],
+                    "severity": str(item.get("severity") or "").lower()[:20],
+                    "functional_impact": str(item.get("functional_impact") or "")[:160],
+                    "contraindications": [
+                        str(c).strip()[:80]
+                        for c in (item.get("contraindications") or [])
+                        if str(c).strip()
+                    ][:6],
+                    "safe_substitutes": [
+                        str(c).strip()[:80]
+                        for c in (item.get("safe_substitutes") or [])
+                        if str(c).strip()
+                    ][:6],
+                    "impact_cap": cap,
+                    "load_pct_ceiling": ceiling,
+                    "source": "agent",
+                }
+            )
+        return out
+
+    @staticmethod
+    def _normalize_dose(raw_dose: Any) -> Dict[str, str]:
+        if not isinstance(raw_dose, dict):
+            return {}
+        out: Dict[str, str] = {}
+        for key in ("volume", "intensity", "rest", "progression"):
+            value = str(raw_dose.get(key) or "").strip()[:120]
+            if value:
+                out[key] = value
+        return out
 
     # ── 规则后端（唯一的下限来源）─────────────────────────────────────────
     def _analyze_rules(
@@ -301,12 +503,21 @@ class StateRiskAgent:
     def _merge_enhancement(
         self, base: RiskProfile, raw: Dict[str, Any]
     ) -> RiskProfile:
-        """把 LLM 建议并入规则结果 —— 每一类都只取更严的一方。"""
+        """把模型输出拆成两半：报告并入报告，约束只取更严的一方。
+
+        模型可以只交约束、也可以只交报告 —— 两种都接受，所以先看有没有
+        ``constraints`` 这一层包装，没有就按扁平字段读（兼容旧输出）。
+        """
         index = {int(ex["id"]): ex for ex in self.exercise_db}
         allowed_set = set(base.allowed_ids)
+        constraints = (
+            raw["constraints"]
+            if isinstance(raw.get("constraints"), dict)
+            else raw
+        )
 
         added: Dict[int, str] = {}
-        for item in raw.get("additional_forbidden") or []:
+        for item in constraints.get("additional_forbidden") or []:
             if not isinstance(item, dict):
                 continue
             try:
@@ -321,7 +532,7 @@ class StateRiskAgent:
             added[eid] = f"LLM_APPENDED:{reason}"[:160]
 
         joint_caps = dict(base.joint_caps)
-        for joint, cap in (raw.get("additional_joint_caps") or {}).items():
+        for joint, cap in (constraints.get("additional_joint_caps") or {}).items():
             key = str(joint).lower()
             try:
                 value = int(cap)
@@ -332,14 +543,14 @@ class StateRiskAgent:
                 joint_caps[key] = value
 
         ceiling = base.impact_ceiling
-        override = raw.get("impact_ceiling_override")
+        override = constraints.get("impact_ceiling_override")
         if isinstance(override, (int, float)) and not isinstance(override, bool):
             candidate = int(override)
             if 1 <= candidate < ceiling:
                 ceiling = candidate
 
         load_cap = base.load_pct_cap
-        load_override = raw.get("load_pct_cap_override")
+        load_override = constraints.get("load_pct_cap_override")
         if isinstance(load_override, (int, float)) and not isinstance(load_override, bool):
             candidate = int(load_override)
             if 0 <= candidate <= 100 and (load_cap is None or candidate < load_cap):
@@ -354,28 +565,34 @@ class StateRiskAgent:
             if ex.get("motion_pattern")
         }
         avoid: List[str] = []
-        for p in raw.get("avoid_patterns") or []:
+        for p in constraints.get("avoid_patterns") or []:
             key = str(p).strip().lower()
             if key in vocab and key not in avoid:
                 avoid.append(key)
 
         session_cap: Optional[int] = None
-        raw_cap = raw.get("session_cap_minutes")
+        raw_cap = constraints.get("session_cap_minutes")
         if isinstance(raw_cap, (int, float)) and not isinstance(raw_cap, bool):
             session_cap = min(max(int(raw_cap), 15), 120)
 
-        progression = str(raw.get("progression_note") or "").strip()[:200]
-        capacity = str(raw.get("capacity_note") or "").strip()[:200]
+        # 这两句属于报告（判断），不属于约束；模型若放进 constraints 也认
+        progression = str(
+            raw.get("progression_note") or constraints.get("progression_note") or ""
+        ).strip()[:200]
+        capacity = str(
+            raw.get("capacity_note") or constraints.get("capacity_note") or ""
+        ).strip()[:200]
 
-        if not added and joint_caps == base.joint_caps and ceiling == base.impact_ceiling \
-                and load_cap == base.load_pct_cap and not avoid \
-                and session_cap is None and not progression and not capacity:
-            return replace(
-                base,
-                llm_status="empty",
-                llm_rationale=rationale,
-                llm_prompt_version=STATE_RISK_PROMPT_VERSION,
-            )
+        constraints_touched = bool(
+            added
+            or joint_caps != base.joint_caps
+            or ceiling != base.impact_ceiling
+            or load_cap != base.load_pct_cap
+            or avoid
+            or session_cap is not None
+            or progression
+            or capacity
+        )
 
         forbidden_reasons = dict(base.forbidden_reasons)
         forbidden_reasons.update(added)
@@ -404,7 +621,7 @@ class StateRiskAgent:
 
         # profile_hash 必须重算：约束集变了，旧 hash 会让下游的
         # STALE_PROFILE 检查失去意义。
-        return RiskProfile(
+        merged = RiskProfile(
             user_id=base.user_id,
             allowed_ids=allowed_ids,
             forbidden_reasons=forbidden_reasons,
@@ -423,7 +640,20 @@ class StateRiskAgent:
             progression_note=progression,
             capacity_note=capacity,
             user_context=dict(base.user_context or {}),
+            risk_report=dict(base.risk_report or {}),
         )
+
+        # 报告在约束合并**之后**归一 —— injuries 里的上限要取最终值，
+        # 否则报告会说「冲击上限 3」而约束已经是 2。
+        report, report_touched = self._merge_report(merged.risk_report, raw, merged)
+        if not constraints_touched and not report_touched:
+            return replace(
+                merged,
+                llm_status="empty",
+                llm_rationale=rationale,
+                llm_prompt_version=STATE_RISK_PROMPT_VERSION,
+            )
+        return replace(merged, risk_report=report)
 
     # ── 内部 ──────────────────────────────────────────────────────────────
     @staticmethod
@@ -547,3 +777,29 @@ class StateRiskAgent:
 
 def _rank(severity: str) -> int:
     return {"low": 1, "medium": 2, "high": 3}.get(severity, 0)
+
+
+def _pick_enum(value: Any, allowed: Sequence[str]) -> str:
+    """模型爱写 "Moderate"、"very-high"、"高" —— 只认白名单内的归一值。"""
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return text if text in allowed else ""
+
+
+def _stricter(base_value: Any, new_value: str, order: Sequence[str]) -> str:
+    """两档取更保守的一侧：报告的结论不允许比机器约束更乐观。"""
+    base_text = str(base_value or "").strip().lower()
+    if not new_value:
+        return base_text
+    if base_text not in order:
+        return new_value
+    return order[max(order.index(base_text), order.index(new_value))]
+
+
+def _as_optional_int(value: Any) -> Optional[int]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+

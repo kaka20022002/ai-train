@@ -74,9 +74,9 @@ python main.py
 
 | Agent | prompt 版本 | 职责 | 接不上 LLM 时 |
 | --- | --- | --- | --- |
-| `state_risk` | `state_risk/2.1.0` | 从病历自由文本抽取规则算不出的约束（模式禁忌、时长上限、容量判断） | 退回纯规则阈值表 |
-| `plan_gen` | `plan_gen/3.0.0` | **全权决定**从全库选哪些动作、放哪个阶段、顺序、组次负荷、休息；被打回时自己改 | 退回确定性采样 + 处方推荐值 |
-| `safety_eval` | `safety_eval/3.0.0` | **最终裁决**：确认或否决基线提示，输出枚举违规码（含剂量合理性） | 退回基线谓词 |
+| `state_risk` | `state_risk/3.0.0` | 读身体情况出**风险报告**（risk_level / clearance / injuries / dose_guidance / watch_items）+ 约束投影 | 退回阈值表生成的基线报告 |
+| `plan_gen` | `plan_gen/3.1.0` | 照报告 + 需求**全权决定**全库选哪些动作、放哪个阶段、顺序、组次负荷、休息；被打回时自己改 | 退回确定性采样 + 处方推荐值 |
+| `safety_eval` | `safety_eval/3.1.0` | **最终裁决**：判是否符合安全标准、是否适合这位用户（`REPORT_BREACH`），确认或否决基线提示 | 退回基线谓词 |
 
 ### 模型看到的输入是完整档案，不是摘要
 
@@ -137,11 +137,53 @@ python main.py
 俯身划船、反向划船），原因是原来的下肢主项全依赖杠铃与器械架 ——
 「膝伤 + 只有哑铃」的用户在练腿日会一个主项都选不出来。
 
-### 权力结构：模型全权决策，Rule 只做会审依据（v3）
+### 三阶段语义（v4）：评估 → 生成 → 复核
 
-2026-10 的这次改造**拆掉了中间那层规则**。原先是「规则裁剪候选 → 模型在剩下的
-里挑 → 规则夹紧参数 → 规则判合规 ∧ 模型判合规」，模型实际上没有任何决定权。
-现在的分工是：
+管线不是「三个过滤器」，而是三次**不同性质的判断**：
+
+| 阶段 | Agent | 输入 | 产物 |
+| --- | --- | --- | --- |
+| ① 评估 | `state_risk` | 病历原文、训练反馈、本次需求 | **风险报告**：整体风险等级、能否开练、每条伤情的功能影响与具体禁忌、剂量口径、要盯的信号 |
+| ② 生成 | `plan_gen` | 风险报告 + 用户需求 + 全量动作库 | 完整计划（动作、顺序、组次、负荷、休息） |
+| ③ 复核 | `safety_eval` | 计划 + 风险报告 + 基线命中项 | 裁决：符合安全标准吗？适合这位用户吗？ |
+
+**报告长这样**（`/generate_plan` 的 `risk_analysis.risk_report`）：
+
+```json
+{
+  "source": "agent",
+  "overall": {"risk_level": "high", "clearance": "conditional",
+              "summary": "下肢只能做无痛幅度内的髋主导动作"},
+  "injuries": [{
+    "location": "knee", "condition": "meniscus_tear",
+    "functional_impact": "屈膝超过 90° 出现内侧刺痛，闭链屈膝耐受差",
+    "contraindications": ["深屈膝闭合链负荷", "跳跃落地缓冲"],
+    "safe_substitutes": ["髋主导", "低冲击"],
+    "impact_cap": 2, "load_pct_ceiling": 55
+  }],
+  "dose_guidance": {"volume": "单次不超过 12 个工作组", "intensity": "主项 ≤55% 1RM"},
+  "watch_items": ["膝内侧出现刺痛立即停止该动作"]
+}
+```
+
+报告与 `RiskProfile` 里那组约束是**同一判断的两种形态**：报告给人读、给下游
+Agent 读；约束（`allowed_ids` / `joint_caps` / `avoid_patterns` / …）是它的
+机器可执行投影，由程序逐条核对。两者由同一个 Agent 产出，不会互相打脸。
+
+两处刻意的不对称：
+
+- `clearance` / `risk_level` 只能**更保守**。模型可以比阈值表严，不能更松 ——
+  松的那一侧由约束兜着，报告若比约束乐观就自相矛盾。
+- `injuries` / `dose_guidance` / `watch_items` 允许整体替换 —— 这些正是规则
+  结构性算不出来的，模型说什么就是什么（逐条做类型收敛）。
+
+`risk_report.source` 标明报告出自谁：`agent` = 读过病历原文的判断；
+`baseline` = 没配模型，阈值表生成的降级版本（形状完全相同，下游不必判空）。
+
+### 权力结构：模型全权决策，Rule 只做会审依据
+
+中间那层规则在 v3 被拆掉了。原先是「规则裁剪候选 → 模型在剩下的里挑 →
+规则夹紧参数 → 规则判合规 ∧ 模型判合规」，模型实际上没有决定权。现在是：
 
 | 维度 | 谁决定 |
 | --- | --- |
@@ -149,16 +191,17 @@ python main.py
 | 放哪个阶段 | **模型**（`phases` 只是建议，放错了由审查判 `SEQUENCE`） |
 | 组数 / 次数 / 负荷 / 休息 | **模型**（原样落库，不再夹紧） |
 | 训练是否安全 | **审查 Agent**（它的 verdict 就是最终结论） |
+| 是否符合这位用户 | **审查 Agent**（拿计划逐条对风险报告，判 `REPORT_BREACH`） |
 | 计划被打回后怎么改 | **生成 Agent 自己改**（拿到违规清单重写，不是规则补位） |
 
 规则只剩两处身位：
 
-1. **基线证据**。`state_risk` 仍用阈值表算出禁忌清单、关节上限、冲击上限，
-   但这份清单以 `baseline` 的名义随请求下发，是「另一个 Agent 的意见」而
-   不是硬约束。模型可以判定某条对本次训练不适用 —— 代价是要在接受会审时
-   说服审查员。
+1. **报告与约束的基线**。`state_risk` 用阈值表算出禁忌清单、关节上限、
+   冲击上限，作为报告的 `source=baseline` 版本和 `baseline` 字段下发 ——
+   这是「另一个 Agent 的意见」，不是硬约束。模型可以判定某条对本次训练
+   不适用，代价是要在接受会审时说清依据。
 2. **降级后端**。没配 key 时没有任何 Agent 能做判断，此时才启用
-   `RiskGrammar` 的候选采样 + 处方推荐值，并在响应里明确标注
+   `RiskGrammar` 的候选采样 + 处方推荐值，并在响应里标注
    `review_mode="baseline"`（本次未经 Agent 审查）。
 
 审查的三种结论（`safety.review_mode`）：
@@ -173,9 +216,10 @@ python main.py
 → 重写 → 再审，最多 2 轮（`max_review`）。审计链里对应 `review_round`
 记录，`safety.review_rounds` 是实际轮次。
 
-响应里 `safety.review_mode` / `llm_verdict` / `review_rounds` / `baseline_flags`
-显示判定归属与分歧，`audit` 数组逐条记录三个 Agent 的输入摘要与输出结构，
-可直接用于对照实验（降级 vs LLM、不同 prompt 版本）。
+响应里 `risk_analysis.risk_report` / `safety.review_mode` / `llm_verdict` /
+`review_rounds` / `baseline_flags` 显示判断内容与判定归属，`audit` 数组逐条
+记录三个 Agent 的输入摘要与输出结构，可直接用于对照实验（降级 vs LLM、
+不同 prompt 版本）。
 
 ### 使用 OpenAI 模型（示例 GPT-4.1）
 

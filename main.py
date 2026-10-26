@@ -289,10 +289,19 @@ class ForbiddenExerciseResponse(BaseModel):
 
 
 class RiskAnalysisResponse(BaseModel):
-    """Schema for risk analysis summary."""
+    """Schema for risk analysis summary.
+
+    ``risk_report`` 是阶段一的完整判断（整体风险等级 / 能否开练 / 每条伤情的
+    功能影响与禁忌 / 剂量口径 / 要盯的信号）；下面三个字段是它的机器投影。
+    没有配模型时 source="baseline"，报告由阈值表生成。
+    """
     forbidden_exercises: List[ForbiddenExerciseResponse]
     safe_exercise_count: int
     constraints: List[str]
+    risk_report: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="阶段一风险报告：overall / injuries / dose_guidance / watch_items",
+    )
 
 
 class SafetyViolationResponse(BaseModel):
@@ -830,7 +839,8 @@ async def generate_plan(
                     ) for ex in forbidden_exercises
                 ],
                 safe_exercise_count=len(safe_exercises),
-                constraints=[c.description for c in constraints]
+                constraints=[c.description for c in constraints],
+                risk_report=dict(agent_result.profile.risk_report or {}) if agent_result else {},
             ),
             generated_at=plan_export["generated_at"],
             generator_version=plan_export["generator_version"],

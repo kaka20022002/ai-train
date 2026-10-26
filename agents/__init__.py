@@ -8,6 +8,9 @@
 2. **会审而非前筛**：v3 起不再把风险档案编译成候选裁剪 —— 生成端拿到全量
    动作库，安全性由第 3 个 Agent 事后审查保证，判 fail 则把违规项回灌重写。
    ``RiskGrammar`` 仍然保留，但只服务于「没配模型」的降级后端。
+3. **三阶段语义**（v4）：阶段一读身体情况出**风险报告**，阶段二照报告 +
+   需求出计划，阶段三照报告 + 安全标准复核。报告是判断，``RiskProfile``
+   里那组约束是同一判断的机器投影，两者不会分裂。
 
 模块划分：
     contracts      数据契约（唯一跨 Agent 传输格式）
@@ -16,9 +19,9 @@
     prescription   处方推导与参考区间（动作类型 × 阶段）
     prompts        三份独立的 Agent system prompt
     llm_bridge     同一个 LLM 客户端 → 三个职责不同的调用入口
-    state_agent    状态与风险分析 Agent（产出基线证据）
+    state_agent    身体状态评估 Agent（产出风险报告 + 约束投影）
     plan_agent     计划生成 Agent（全库自由生成 + 按审查意见重写）
-    safety_agent   计划安全审查 Agent（最终裁决）
+    safety_agent   计划审查 Agent（判安全标准 + 是否适合这位用户）
     pipeline       编排与审计
     render         结构化产物 → 对外 JSON
 """

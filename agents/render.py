@@ -153,9 +153,27 @@ def build_safety_notes(
     report: SafetyReport,
     draft: Optional[PlanDraft] = None,
 ) -> List[str]:
-    """安全说明：先说结论由谁给出，再给可核查的数字。"""
+    """安全说明：先复述阶段一的结论，再说审查由谁给出，最后给可核查的数字。"""
     notes: List[str] = []
     mode = report.review_mode
+
+    # ── 阶段一的结论：它在这份计划里意味着什么 ────────────────────────────
+    overall = (profile.risk_report or {}).get("overall") or {}
+    clearance = str(overall.get("clearance") or "")
+    if clearance:
+        label = {
+            "cleared": "可正常训练",
+            "conditional": "有条件训练",
+            "not_cleared": "本次不建议训练",
+        }.get(clearance, clearance)
+        level = str(overall.get("risk_level") or "")
+        summary = str(overall.get("summary") or "")
+        suffix = f"：{summary}" if summary else ""
+        notes.append(f"🩺 风险报告（{level or '未定级'}）：{label}{suffix}")
+
+    watch = list((profile.risk_report or {}).get("watch_items") or [])[:2]
+    for item in watch:
+        notes.append(f"👀 {item}")
 
     if mode == "agent":
         if report.passed:
