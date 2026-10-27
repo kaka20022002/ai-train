@@ -131,10 +131,14 @@ class PlanAgent:
         draft: PlanDraft,
         violations: Sequence[Any],
         rationale: str = "",
+        user_request: str = "",
     ) -> Optional[PlanDraft]:
-        """按审查意见重写 —— 由**同一个**生成 Agent 自己改，而不是规则补位。
+        """在上一版计划上重写 —— 由**同一个**生成 Agent 自己改，而不是规则补位。
 
-        带上上一版计划和违规清单：模型要看到自己错在哪，才能改对。
+        两种触发：
+        - 审查驳回：``violations`` 有内容，模型要看到自己错在哪；
+        - 用户改稿：``user_request`` 是用户原话（「深蹲去掉」「减到 30 分钟」），
+          此时按用户要求改，其余部分尽量保持不变。
         """
         if self._llm_plan_fn is None:
             return None
@@ -144,6 +148,7 @@ class PlanAgent:
                 v.to_dict() if hasattr(v, "to_dict") else dict(v) for v in violations
             ],
             "rationale": rationale,
+            "user_request": user_request,
         }
         payload["previous_attempt"] = _compact_draft(draft, catalog)
         return self._call_and_parse(payload, profile, catalog, draft.workout_type, mode="revise")

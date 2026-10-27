@@ -62,6 +62,10 @@ class GenerationResult:
     report: SafetyReport
     audit: PipelineAudit
     review_rounds: int = 0
+    #: 修订链路专用：修改稿是否真的被采纳（否则是回退到原计划）
+    revision_applied: bool = False
+    #: 给用户看的一句话，说明这轮改了什么 / 为什么没改
+    revision_note: str = ""
 
     @property
     def reviewed_by_agent(self) -> bool:
@@ -234,4 +238,123 @@ def run_pipeline(
     )
 
 
-__all__ = ["run_pipeline", "GenerationResult", "PipelineAudit", "PIPELINE_VERSION"]
+def revise_plan(
+    exercise_db: Sequence[Dict[str, Any]],
+    profile: RiskProfile,
+    draft: PlanDraft,
+    instruction: str,
+    plan_agent: Optional[PlanAgent] = None,
+    safety_agent: Optional[SafetyEvalAgent] = None,
+    max_review: int = 1,
+) -> GenerationResult:
+    """按用户的修改要求重写计划，**改完必须过审**（对应「1 和 3」）。
+
+    与 ``run_pipeline`` 的区别：不重新做状态分析（``profile`` 由调用方传入，
+    通常是本会话上一轮那份），也不从零生成 —— 而是在现有草稿上改。
+
+    安全兜底：改出来的稿子如果审查不通过，且重试次数用尽，就**回退到原计划**
+    而不是把不合格的稿子交给用户。原计划是上一轮过审的产物，退回它比交付一份
+    已知有问题的计划安全。
+    """
+    audit = PipelineAudit()
+    catalog = ExerciseCatalog(exercise_db)
+    agent = plan_agent or PlanAgent()
+    evaluator = safety_agent or SafetyEvalAgent()
+
+    audit.record(
+        "revise_request",
+        {
+            "plan_id": draft.plan_id,
+            "profile_hash": profile.profile_hash,
+            "slots_before": draft.slot_count(),
+            "instruction": instruction[:300],
+            "backend": "llm" if agent.can_revise else "deterministic",
+        },
+        {"ids_before": draft.all_ids()},
+    )
+
+    revised = agent.revise(profile, catalog, draft, [], instruction, user_request=instruction)
+    if revised is None:
+        # 模型不可用 —— 不能假装改过了
+        report = evaluator.evaluate(draft, profile, catalog)
+        return GenerationResult(
+            profile=profile,
+            draft=draft,
+            report=report,
+            audit=audit,
+            review_rounds=0,
+            revision_applied=False,
+            revision_note="模型未给出修改稿，保留原计划",
+        )
+
+    report = evaluator.evaluate(revised, profile, catalog)
+    audit.record(
+        "safety_eval",
+        {
+            "plan_id": revised.plan_id,
+            "profile_hash": profile.profile_hash,
+            "review_mode": report.review_mode,
+            "baseline_flags": len(report.baseline_flags),
+            "round": 0,
+        },
+        report.to_dict(),
+    )
+
+    rounds = 0
+    while not report.passed and rounds < max_review and agent.can_revise:
+        handed_back = [v.to_dict() for v in report.violations]
+        rationale = report.llm_rationale
+        rounds += 1
+        nxt = agent.revise(profile, catalog, revised, report.violations, rationale)
+        if nxt is None:
+            rounds -= 1
+            break
+        revised = nxt
+        report = evaluator.evaluate(revised, profile, catalog)
+        audit.record(
+            "review_round",
+            {"round": rounds, "feedback": handed_back, "rationale": rationale[:200]},
+            {
+                "plan_id": revised.plan_id,
+                "ids": revised.all_ids(),
+                "passed": report.passed,
+                "violations": [v.to_dict() for v in report.violations],
+            },
+        )
+
+    if not report.passed:
+        # 改不回来 → 退回原计划（原稿是上一轮过审的），并如实说明
+        fallback = evaluator.evaluate(draft, profile, catalog)
+        audit.record(
+            "revision_reverted",
+            {"attempted_plan_id": revised.plan_id, "rounds": rounds},
+            {"reverted_to": draft.plan_id, "passed": fallback.passed},
+        )
+        return GenerationResult(
+            profile=profile,
+            draft=draft,
+            report=fallback,
+            audit=audit,
+            review_rounds=rounds,
+            revision_applied=False,
+            revision_note="修改稿未通过安全审查，已保留上一版的计划",
+        )
+
+    return GenerationResult(
+        profile=profile,
+        draft=revised,
+        report=report,
+        audit=audit,
+        review_rounds=rounds,
+        revision_applied=True,
+        revision_note="已按你的要求调整，并通过安全审查",
+    )
+
+
+__all__ = [
+    "run_pipeline",
+    "revise_plan",
+    "GenerationResult",
+    "PipelineAudit",
+    "PIPELINE_VERSION",
+]

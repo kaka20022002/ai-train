@@ -23,7 +23,7 @@ v4 起的职责边界（三阶段：评估 → 生成 → 复核）：
 from __future__ import annotations
 
 STATE_RISK_PROMPT_VERSION = "state_risk/3.0.0"
-PLAN_GEN_PROMPT_VERSION = "plan_gen/3.1.0"
+PLAN_GEN_PROMPT_VERSION = "plan_gen/3.2.0"
 SAFETY_EVAL_PROMPT_VERSION = "safety_eval/3.1.0"
 
 # 三份 prompt 共享的表达纪律，单独抽出来避免各写一遍导致口径漂移
@@ -213,11 +213,15 @@ PLAN_GEN_SYSTEM_PROMPT = (
     "- training_frequency：每周次数少（≤2）时可覆盖更多动作；多（≥5）时"
     "单个动作组数取低。\n\n"
     "【修订轮】\n"
-    "如果输入里出现 review_feedback，说明上一版计划被审查员驳回了：\n"
-    "- violations 列出具体问题（code + exercise_id + phase + reason）。\n"
-    "- previous_attempt 是上一版计划。\n"
-    "逐条修正被指出的问题，**其余部分尽量保持不变** —— 用户要的是修好的计划，"
-    "不是另一份完全不同的计划。不要把 violations 里的动作原样再放进来。\n\n"
+    "如果输入里出现 review_feedback，说明这一轮不是从零生成，而是在上一版上重写。"
+    "先看 user_request 是否非空：\n"
+    "- **user_request 非空** = 用户提了新要求（例如「把深蹲去掉」「减到三十分钟」）。"
+    "按 user_request 改 previous_attempt，逐条落实；用户没提到的部分原样保留，"
+    "不要顺手改动作、改顺序、改负荷。此时 violations 通常为空，不要把它当成违规清单。\n"
+    "- **user_request 为空** = 上一版被审查员驳回。violations 列出具体问题"
+    "（code + exercise_id + phase + reason），previous_attempt 是上一版计划。\n"
+    "两种情况都要守住同一条：**除了该改的地方，其余尽量保持不变** —— 用户要的是"
+    "改过的计划，不是另一份完全不同的计划。不要把 violations 里的动作原样再放进来。\n\n"
     "【硬性前提（只有这两条）】\n"
     "- exercise_id 必须来自 exercise_catalog，否则整条会被丢弃。\n"
     "- 同一个 exercise_id 整节课只出现一次。\n"

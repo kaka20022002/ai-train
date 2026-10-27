@@ -122,9 +122,17 @@ def save_generated_plan(
     db: Session,
     plan_export: Dict[str, Any],
     generator_version: str = "unknown",
+    draft_data: Optional[Dict[str, Any]] = None,
+    profile_data: Optional[Dict[str, Any]] = None,
 ) -> GeneratedPlan:
     """
     Persist a plan dict produced by PlanGeneratorMock.export_plan_as_json().
+
+    ``draft_data`` 是 ``PlanDraft.to_dict()`` 的原始结构（带 exercise_id）。
+    ``plan_data`` 只存渲染后的名字，无法反查动作库 —— 对话里要修订计划时
+    必须靠 draft_data 才能重建草稿。``profile_data`` 是当时的风险档案，
+    修订时当作安全地板，防止重算把伤病约束冲淡。
+
     Idempotent: if the plan_id already exists, returns the existing record.
     """
     existing = get_generated_plan(db, plan_export["plan_id"])
@@ -136,12 +144,24 @@ def save_generated_plan(
         user_id=plan_export["user_id"],
         workout_type=plan_export["workout_type"],
         plan_data=plan_export,
+        draft_data=draft_data,
+        profile_data=profile_data,
         generator_version=generator_version,
     )
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
+
+
+def get_latest_user_plan(db: Session, user_id: str) -> Optional[GeneratedPlan]:
+    """最新一份计划 —— 对话里说「把深蹲去掉」时，改的就是它。"""
+    return (
+        db.query(GeneratedPlan)
+        .filter(GeneratedPlan.user_id == user_id)
+        .order_by(GeneratedPlan.generated_at.desc(), GeneratedPlan.id.desc())
+        .first()
+    )
 
 
 def get_generated_plan(db: Session, plan_id: str) -> Optional[GeneratedPlan]:

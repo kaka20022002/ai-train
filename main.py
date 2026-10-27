@@ -428,6 +428,9 @@ def _run_migrations() -> None:
         "ALTER TABLE training_sessions ADD COLUMN program_week INTEGER",
         # Sprint 3: equipment-aware programming
         "ALTER TABLE users ADD COLUMN available_equipment JSON",
+        # 对话内修订计划需要拿回原始 PlanDraft（plan_data 里只剩动作名字）
+        "ALTER TABLE generated_plans ADD COLUMN draft_data JSON",
+        "ALTER TABLE generated_plans ADD COLUMN profile_data JSON",
     ]
     with engine.connect() as _conn:
         for _stmt in _migrations:
@@ -801,6 +804,8 @@ async def generate_plan(
                 db,
                 plan_export,
                 generator_version=plan_export["generator_version"],
+                # 供对话内修订使用：draft 里有 exercise_id，plan_export 里没有
+                draft_data=agent_result.draft.to_dict() if agent_result else None,
             )
             print(f"   💾 Plan '{plan_export['plan_id']}' saved to database.")
 

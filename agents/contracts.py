@@ -218,9 +218,60 @@ class RiskProfile:
             "session_cap_minutes": self.session_cap_minutes,
             "progression_note": self.progression_note,
             "capacity_note": self.capacity_note,
+            "fitness_level": self.fitness_level,
             "user_context": dict(self.user_context),
             "risk_report": dict(self.risk_report or {}),
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RiskProfile":
+        """从落库的 JSON 还原 —— 对话内修订要靠它继承上一轮的约束。"""
+        rules = []
+        for item in data.get("rules") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                rules.append(
+                    RuleSpec(
+                        rule_id=str(item.get("rule_id") or ""),
+                        kind=str(item.get("kind") or ""),
+                        subject=str(item.get("subject") or "*"),
+                        threshold=int(item.get("threshold") or 0),
+                        source=str(item.get("source") or ""),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        load_cap = data.get("load_pct_cap")
+        session_cap = data.get("session_cap_minutes")
+        return cls(
+            user_id=str(data.get("user_id") or ""),
+            allowed_ids=tuple(int(i) for i in (data.get("allowed_ids") or ())),
+            forbidden_reasons={
+                int(k): str(v) for k, v in (data.get("forbidden_reasons") or {}).items()
+            },
+            joint_caps={
+                str(k): int(v) for k, v in (data.get("joint_caps") or {}).items()
+            },
+            impact_ceiling=int(data.get("impact_ceiling") or 5),
+            load_pct_cap=None if load_cap is None else int(load_cap),
+            rules=tuple(rules),
+            profile_hash=str(data.get("profile_hash") or ""),
+            llm_forbidden=tuple(int(i) for i in (data.get("llm_forbidden") or ())),
+            llm_joint_caps={
+                str(k): int(v) for k, v in (data.get("llm_joint_caps") or {}).items()
+            },
+            llm_rationale=str(data.get("llm_rationale") or ""),
+            llm_status=str(data.get("llm_status") or ""),
+            llm_prompt_version=str(data.get("llm_prompt_version") or ""),
+            avoid_patterns=tuple(str(p) for p in (data.get("avoid_patterns") or ())),
+            session_cap_minutes=None if session_cap is None else int(session_cap),
+            progression_note=str(data.get("progression_note") or ""),
+            capacity_note=str(data.get("capacity_note") or ""),
+            fitness_level=str(data.get("fitness_level") or ""),
+            user_context=dict(data.get("user_context") or {}),
+            risk_report=dict(data.get("risk_report") or {}),
+        )
 
 
 @dataclass
