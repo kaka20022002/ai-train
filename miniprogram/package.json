@@ -38,6 +38,7 @@
     "@babel/preset-react": "^7.24.0",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.15",
     "@tarojs/cli": "4.0.9",
+    "@tarojs/plugin-platform-h5": "^4.0.9",
     "@tarojs/webpack5-runner": "4.0.9",
     "@types/react": "^18.3.3",
     "@types/webpack-env": "^1.18.5",

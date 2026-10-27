@@ -19,7 +19,7 @@ API Documentation (auto-generated):
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -33,9 +33,15 @@ from sqlalchemy.orm import Session
 # Load .env before routers / plan_generator read USE_REAL_LLM & LLM_* vars
 # override=True: 避免本机已有的 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 # （例如指向 DeepSeek）覆盖项目 .env 中的 MiniMax 配置。
+# AI_TRAIN_ENV_FROZEN=1 时跳过 override：测试 / CI 用它钉住环境变量，
+# 否则本地 .env 里一填进真实 key，整个测试套件就会开始真调 API。
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+
+    _frozen = os.getenv("AI_TRAIN_ENV_FROZEN", "").strip().lower() in ("1", "true", "yes")
+    load_dotenv(
+        Path(__file__).resolve().parent / ".env", override=not _frozen
+    )
 except ImportError:
     pass
 
@@ -45,6 +51,18 @@ from plan_generator_mock import PlanGeneratorMock, WorkoutPlan
 from program_generator import ProgramGeneratorService
 from plan_program_sync import sync_plan_after_generation
 from history_analyzer import analyze_history
+
+# 三 Agent 计划生成管线（状态分析给基线意见 → 全库自由生成 → 独立会审 → 回灌重写）
+from agents import (
+    PlanAgent,
+    SafetyEvalAgent,
+    StateRiskAgent,
+    build_bridges,
+    build_exercise_index,
+    render_plan_draft,
+)
+from agents import run_pipeline as run_agent_pipeline
+from agents.contracts import PHASES as AGENT_PHASES
 
 # Database layer
 from database import engine, get_db
@@ -84,6 +102,30 @@ class BasicInfo(BaseModel):
     bmi: Optional[float] = Field(None, description="Body Mass Index")
 
 
+class TrainingPreferences(BaseModel):
+    """用户的训练偏好（兴趣）。
+
+    这是**软约束**：影响模型选动作的倾向，不构成医学禁忌。
+    与 medical_history 的区别在于——不喜欢不等于不能做，
+    所以它不会被写进 forbidden，只作为排序与取舍的偏好。
+    """
+    liked_patterns: List[str] = Field(
+        default_factory=list,
+        description="喜欢的动作模式（如 ['squat', 'hinge']），选动作时优先考虑",
+    )
+    disliked_patterns: List[str] = Field(
+        default_factory=list,
+        description="不喜欢的动作模式，同等条件下尽量避开（不是禁忌）",
+    )
+    disliked_exercises: List[str] = Field(
+        default_factory=list,
+        description="明确不想做的动作名称（中英文均可）",
+    )
+    notes: Optional[str] = Field(
+        None, description="自由文本，如「怕练粗腿」「讨厌长时间有氧」"
+    )
+
+
 class UserProfile(BaseModel):
     """Schema for complete user profile."""
     user_id: str = Field(..., description="Unique user identifier")
@@ -100,6 +142,9 @@ class UserProfile(BaseModel):
         ),
     )
     medical_history: List[MedicalHistoryItem] = Field(default_factory=list)
+    preferences: Optional[TrainingPreferences] = Field(
+        None, description="训练偏好（兴趣），软约束"
+    )
 
     class Config:
         json_schema_extra = {
@@ -184,6 +229,15 @@ class GeneratePlanRequest(BaseModel):
     user_profile: UserProfile
     feedback: Optional[FeedbackInput] = None
     workout_type: str = Field("full_body", description="Type of workout to generate")
+    query: Optional[str] = Field(
+        None,
+        max_length=500,
+        description=(
+            "本次训练需求的一句话描述（自由文本），如「今天想练下肢，只有三十分钟，"
+            "膝盖蹲到底有点不舒服」。会原样进入状态分析 Agent，用于抽取"
+            "时长上限、症状描述这类结构化字段表达不出的信息。"
+        ),
+    )
 
     class Config:
         json_schema_extra = {
@@ -209,9 +263,17 @@ class GeneratePlanRequest(BaseModel):
 class ExerciseResponse(BaseModel):
     """Schema for exercise in response."""
     name: str
+    name_zh: Optional[str] = Field(
+        None,
+        description="Chinese display name; frontend may fall back to its own label map",
+    )
     sets: int
     reps: str
     rest_seconds: int
+    load_pct: Optional[int] = Field(
+        None,
+        description="强度百分比（1RM 的百分比）。自重/弹力带动作与静态拉伸为 null。",
+    )
     notes: Optional[str] = None
     target_muscle: Optional[str] = None
 
@@ -233,10 +295,75 @@ class ForbiddenExerciseResponse(BaseModel):
 
 
 class RiskAnalysisResponse(BaseModel):
-    """Schema for risk analysis summary."""
+    """Schema for risk analysis summary.
+
+    ``risk_report`` 是阶段一的完整判断（整体风险等级 / 能否开练 / 每条伤情的
+    功能影响与禁忌 / 剂量口径 / 要盯的信号）；下面三个字段是它的机器投影。
+    没有配模型时 source="baseline"，报告由阈值表生成。
+    """
     forbidden_exercises: List[ForbiddenExerciseResponse]
     safe_exercise_count: int
     constraints: List[str]
+    risk_report: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="阶段一风险报告：overall / injuries / dose_guidance / watch_items",
+    )
+
+
+class SafetyViolationResponse(BaseModel):
+    """One constraint violation found by the safety-evaluation agent."""
+    code: str
+    exercise_id: int
+    phase: str
+    detail: str
+
+
+class SafetySummaryResponse(BaseModel):
+    """Safety conclusion returned alongside every generated plan.
+
+    v3 起结论由审查 Agent 给出（``review_mode=agent``）；没有配模型时退回
+    基线谓词判定，并在 ``review_mode`` 里如实标注，避免把降级当成审查通过。
+    """
+    passed: bool
+    checked_slots: int
+    review_mode: str = Field(
+        "baseline",
+        description="agent=审查 Agent 裁决 / baseline=基线谓词（未配模型）/ "
+                    "baseline_fallback=审查 Agent 调用失败后退回基线",
+    )
+    review_rounds: int = Field(0, description="被审查打回后重写的轮次")
+    baseline_flags: List[SafetyViolationResponse] = Field(
+        default_factory=list,
+        description="基线谓词的命中项 —— 证据，不是判决；审查 Agent 可以否决",
+    )
+    profile_hash: str = ""
+    grammar_version: str = Field("", description="本次生成所用的动作目录版本")
+    rejected_ids: List[int] = Field(default_factory=list, description="知识库中不存在的 ID")
+    violations: List[SafetyViolationResponse] = Field(default_factory=list)
+    # ── 三个 Agent 的 LLM 审查痕迹（未启用 LLM 时分别为 skipped / deterministic）──
+    llm_verdict: str = Field(
+        "skipped", description="安全评估 Agent 的 LLM 结论：pass / fail / error / skipped"
+    )
+    llm_disagreed: bool = Field(
+        False, description="LLM 结论与规则结论是否不一致（论文里的分歧指标）"
+    )
+    llm_rationale: str = Field("", description="LLM 审查说明（仅作展示，不参与判定）")
+    llm_prompt_version: str = ""
+    state_llm_status: str = Field(
+        "", description="状态分析 Agent 的 LLM 状态：applied / empty / error / skipped"
+    )
+    # ── 病历语义抽取出的约束（规则表算不出来，只能由 Agent 1 给）──────────
+    avoid_patterns: List[str] = Field(
+        default_factory=list, description="需回避的动作模式（如 squat / lunge）"
+    )
+    session_cap_minutes: Optional[int] = Field(
+        None, description="单次训练时长上限（分钟）"
+    )
+    progression_note: str = Field("", description="进阶/退阶方向建议")
+    capacity_note: str = Field("", description="当前训练容量判断")
+    adjusted_slots: int = Field(
+        0, description="模型未给参数、由处方默认值补全的槽位数（不再是越界夹紧计数）"
+    )
 
 
 class GeneratePlanResponse(BaseModel):
@@ -254,6 +381,14 @@ class GeneratePlanResponse(BaseModel):
     program_id: Optional[str] = Field(
         None,
         description="When save_to_db=true, the training program created from this plan",
+    )
+    safety: Optional[SafetySummaryResponse] = Field(
+        None,
+        description="三 Agent 管线的安全评估结论（engine=agents 时返回）",
+    )
+    audit: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="逐条结构化审计记录：state_risk / plan_gen / safety_eval",
     )
 
 
@@ -293,6 +428,9 @@ def _run_migrations() -> None:
         "ALTER TABLE training_sessions ADD COLUMN program_week INTEGER",
         # Sprint 3: equipment-aware programming
         "ALTER TABLE users ADD COLUMN available_equipment JSON",
+        # 对话内修订计划需要拿回原始 PlanDraft（plan_data 里只剩动作名字）
+        "ALTER TABLE generated_plans ADD COLUMN draft_data JSON",
+        "ALTER TABLE generated_plans ADD COLUMN profile_data JSON",
     ]
     with engine.connect() as _conn:
         for _stmt in _migrations:
@@ -380,6 +518,46 @@ except Exception as e:
     
     plan_generator = None
     ENGINE_LOADED = False
+    USE_REAL_LLM = False
+
+
+# ---------------------------------------------------------------------------
+# 三 Agent 管线的 LLM 装配
+#
+# 一个 client（一个 key、一个 provider）切成三个职责不同的入口：
+#   StateRiskAgent  ← bridges.state_fn    病历文本 → 追加型约束
+#   PlanAgent       ← bridges.plan_fn     候选集内选动作
+#   SafetyEvalAgent ← bridges.safety_fn   独立审查 → 枚举违规码
+#
+# 装配失败时 AGENT_BRIDGES 保持 None，管线自动退回全规则后端 —— 也就是说
+# key 没配、网络不通、provider 挂掉都不影响 /generate_plan 可用，只是
+# generator 字段会显示 deterministic。
+# ---------------------------------------------------------------------------
+AGENT_BRIDGES = None
+if USE_REAL_LLM:
+    try:
+        from llm_client import LLMClient
+
+        AGENT_BRIDGES = build_bridges(LLMClient())
+        _versions = ", ".join(
+            f"{k}={v}" for k, v in AGENT_BRIDGES.versions().items()
+        )
+        print(f"🧩 Agent LLM bridges ready ({LLMClient.__module__}): {_versions}")
+    except Exception as e:  # noqa: BLE001
+        AGENT_BRIDGES = None
+        print(
+            "⚠️  Agent LLM bridges unavailable — agents fall back to baseline-only "
+            f"backends (no agent review): {e}"
+        )
+else:
+    # 常见误配：key 填了但忘了打开开关。这里主动提示，省得对着
+    # generator=deterministic 排查半天。
+    if os.getenv("OPENAI_API_KEY") or os.getenv("MINIMAX_API_KEY"):
+        print(
+            "ℹ️  Detected an API key but USE_REAL_LLM=false — the three agents "
+            "are running on baseline backends, i.e. no agent review. Set USE_REAL_LLM=true in .env "
+            "to switch them to the LLM backends."
+        )
 
 
 # =============================================================================
@@ -458,6 +636,14 @@ async def generate_plan(
         le=30,
         description="Number of recent sessions to include in the history analysis (default 10)",
     ),
+    engine: str = Query(
+        "agents",
+        description=(
+            "计划生成引擎。agents（默认）= 三 Agent 管线：状态分析给出基线意见、"
+            "生成 Agent 从全量动作库自由出计划、审查 Agent 独立复核（判 fail 则回灌"
+            "重写）。legacy = 旧的单步 mock 生成器，仅用于对照实验与回退。"
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -532,19 +718,64 @@ async def generate_plan(
         if feedback_dict:
             constraints = risk_engine.analyze_dynamic_feedback(feedback_dict)
 
-        # Generate the workout plan (history_context passed through to LLM)
-        workout_plan = plan_generator.generate_plan(
-            user_profile=user_profile_dict,
-            feedback_input=feedback_dict,
-            workout_type=request.workout_type,
-            history_context=history_context,
-        )
+        # ── 生成计划：默认走三 Agent 管线，legacy 走旧单步生成器 ──────────
+        agent_result = None
+        if engine == "agents":
+            # 三个 Agent 的 LLM 后端在这里注入；AGENT_BRIDGES 为 None 时
+            # 不传参数，三个 Agent 都用各自的规则后端。
+            agent_kwargs: Dict[str, Any] = {}
+            if AGENT_BRIDGES is not None:
+                agent_kwargs = {
+                    "state_agent": StateRiskAgent(
+                        risk_engine.exercise_db,
+                        llm_enhance_fn=AGENT_BRIDGES.state_fn,
+                    ),
+                    "plan_agent": PlanAgent(llm_plan_fn=AGENT_BRIDGES.plan_fn),
+                    "safety_agent": SafetyEvalAgent(
+                        llm_judge_fn=AGENT_BRIDGES.safety_fn
+                    ),
+                }
+            agent_result = run_agent_pipeline(
+                exercise_db=risk_engine.exercise_db,
+                user_profile=user_profile_dict,
+                feedback=feedback_dict,
+                workout_type=request.workout_type,
+                query=request.query,
+                **agent_kwargs,
+            )
+            plan_export = render_plan_draft(
+                agent_result.draft,
+                build_exercise_index(risk_engine.exercise_db),
+                agent_result.profile,
+                agent_result.report,
+                fitness_level=str(user_profile_dict.get("fitness_level") or "beginner"),
+                workout_type=request.workout_type,
+            )
+            print(
+                f"   \U0001f9e9 Agents pipeline: {agent_result.draft.slot_count()} slots | "
+                f"baseline_forbidden={len(agent_result.profile.forbidden_reasons)} | "
+                f"safety_passed={agent_result.report.passed} "
+                f"(review={agent_result.report.review_mode}, "
+                f"rounds={agent_result.review_rounds}) | "
+                f"generator={plan_export['generator_version']} | "
+                f"llm=[state={agent_result.profile.llm_status or 'skipped'} "
+                f"plan={agent_result.draft.generator} "
+                f"safety={agent_result.report.llm_verdict}]"
+            )
+        else:
+            # Generate the workout plan (history_context passed through to LLM)
+            workout_plan = plan_generator.generate_plan(
+                user_profile=user_profile_dict,
+                feedback_input=feedback_dict,
+                workout_type=request.workout_type,
+                history_context=history_context,
+            )
 
-        # Export plan as JSON (pass actual generator version)
-        plan_export = plan_generator.export_plan_as_json(
-            workout_plan,
-            generator_version=plan_generator.generator_version,
-        )
+            # Export plan as JSON (pass actual generator version)
+            plan_export = plan_generator.export_plan_as_json(
+                workout_plan,
+                generator_version=plan_generator.generator_version,
+            )
 
         # Augment safety_notes with history coaching summary (Phase 2)
         if history_summary:
@@ -572,7 +803,9 @@ async def generate_plan(
             crud.save_generated_plan(
                 db,
                 plan_export,
-                generator_version=plan_generator.generator_version,
+                generator_version=plan_export["generator_version"],
+                # 供对话内修订使用：draft 里有 exercise_id，plan_export 里没有
+                draft_data=agent_result.draft.to_dict() if agent_result else None,
             )
             print(f"   💾 Plan '{plan_export['plan_id']}' saved to database.")
 
@@ -582,7 +815,7 @@ async def generate_plan(
                     plan_export,
                     user_profile_dict,
                     program_generator,
-                    plan_generator.generator_version,
+                    plan_export["generator_version"],
                     history_summary=history_summary,
                 )
                 print(
@@ -617,11 +850,44 @@ async def generate_plan(
                     ) for ex in forbidden_exercises
                 ],
                 safe_exercise_count=len(safe_exercises),
-                constraints=[c.description for c in constraints]
+                constraints=[c.description for c in constraints],
+                risk_report=dict(agent_result.profile.risk_report or {}) if agent_result else {},
             ),
             generated_at=plan_export["generated_at"],
             generator_version=plan_export["generator_version"],
             program_id=program_id,
+            safety=(
+                SafetySummaryResponse(
+                    passed=agent_result.report.passed,
+                    checked_slots=agent_result.report.checked_slots,
+                    review_mode=agent_result.report.review_mode,
+                    review_rounds=agent_result.review_rounds,
+                    baseline_flags=[
+                        SafetyViolationResponse(**v.to_dict())
+                        for v in agent_result.report.baseline_flags
+                    ],
+                    profile_hash=agent_result.profile.profile_hash,
+                    grammar_version=agent_result.draft.grammar_version,
+                    rejected_ids=list(agent_result.draft.rejected_ids),
+                    violations=[
+                        SafetyViolationResponse(**v.to_dict())
+                        for v in agent_result.report.violations
+                    ],
+                    llm_verdict=agent_result.report.llm_verdict,
+                    llm_disagreed=agent_result.report.llm_disagreed,
+                    llm_rationale=agent_result.report.llm_rationale,
+                    llm_prompt_version=agent_result.report.llm_prompt_version,
+                    state_llm_status=agent_result.profile.llm_status or "skipped",
+                    avoid_patterns=list(agent_result.profile.avoid_patterns),
+                    session_cap_minutes=agent_result.profile.session_cap_minutes,
+                    progression_note=agent_result.profile.progression_note,
+                    capacity_note=agent_result.profile.capacity_note,
+                    adjusted_slots=agent_result.draft.adjusted_slots,
+                )
+                if agent_result
+                else None
+            ),
+            audit=agent_result.audit.entries if agent_result else None,
         )
 
         return response
@@ -645,7 +911,8 @@ async def list_exercises(
     
     **Query Parameters:**
     - `muscle_group`: Filter by target muscle (e.g., "Quadriceps", "Pectorals")
-    - `exercise_type`: Filter by type ("Compound", "Isolation", "Isometric")
+    - `exercise_type`: Filter by type — Compound / Isolation / Isometric
+      （训练动作）或 Warmup / Stretch / Activation（热身、拉伸、激活）
     - `max_risk_level`: Only return exercises with risk_level <= this value (1-5)
     """
     
@@ -820,6 +1087,28 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown."""
     print("\n🛑 API shutting down...")
+
+
+# =============================================================================
+# H5 预览同源托管
+# =============================================================================
+# 为什么同源：H5 原本单独跑在 5178，向 8000 发请求属于跨域；若页面本身被
+# 内置浏览器以 https 代理打开，http 后端还会被判成混合内容直接失败。
+# 把构建产物挂到 API 自己的域名下，页面与接口同源，前端 config 会把
+# API_BASE 自动切换成 location.origin。
+_H5_DIST = Path(__file__).resolve().parent / "miniprogram" / "dist"
+
+if (_H5_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    @app.get("/h5", include_in_schema=False)
+    def h5_index():
+        return RedirectResponse(url="/index.html")
+
+    # catch-all 必须最后挂载：先匹配已有 API 路由，剩下的才落到静态文件
+    app.mount("/", StaticFiles(directory=str(_H5_DIST), html=True), name="h5")
+else:
+    print(f"ℹ️ 未找到 H5 构建产物（{_H5_DIST}），跳过静态托管")
 
 
 # =============================================================================

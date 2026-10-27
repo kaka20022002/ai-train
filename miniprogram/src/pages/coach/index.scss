@@ -176,6 +176,24 @@
   border: 1rpx solid rgba(15, 23, 42, 0.06);
 }
 
+/* 带计划卡片的气泡放宽：卡片要放得下阶段分组与剂量标签 */
+.bubble.has-plan {
+  max-width: 96%;
+  padding: 20rpx 18rpx 18rpx;
+}
+
+.bubble-body {
+  display: block;
+}
+
+.bubble-hint {
+  display: block;
+  font-size: 21rpx;
+  line-height: 1.5;
+  color: #a8b3c2;
+  margin-top: 6rpx;
+}
+
 .bubble-role {
   display: block;
   font-size: 20rpx;

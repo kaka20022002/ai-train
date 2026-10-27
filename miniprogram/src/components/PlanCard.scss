@@ -1,0 +1,181 @@
+.pc {
+  display: block;
+  margin-top: 14rpx;
+  padding: 20rpx 20rpx 16rpx;
+  border-radius: 20rpx;
+  background: #ffffff;
+  border: 1rpx solid #e2e8f0;
+}
+
+/* ── 头部 ─────────────────────────────────────────────── */
+.pc-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.pc-head-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.pc-kicker {
+  font-size: 20rpx;
+  letter-spacing: 2rpx;
+  color: #14b8a6;
+  font-weight: 600;
+}
+
+.pc-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #0b1220;
+  margin-top: 4rpx;
+}
+
+.pc-duration {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+/* ── 标签行 ───────────────────────────────────────────── */
+.pc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+.pc-tag {
+  font-size: 21rpx;
+  padding: 3rpx 12rpx;
+  border-radius: 999rpx;
+  margin-right: 10rpx;
+  margin-bottom: 6rpx;
+}
+
+.pc-tag.ok {
+  background: #ecfdf5;
+  color: #0f766e;
+  border: 1rpx solid #99f6e4;
+}
+
+.pc-tag.warn {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1rpx solid #fed7aa;
+}
+
+.pc-tag.soft {
+  background: #f4f6f8;
+  color: #64748b;
+  border: 1rpx solid #e2e8f0;
+}
+
+/* ── 阶段 ─────────────────────────────────────────────── */
+.pc-phase {
+  display: block;
+  margin-top: 18rpx;
+}
+
+.pc-phase-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+
+.pc-bar {
+  width: 6rpx;
+  height: 22rpx;
+  border-radius: 3rpx;
+  background: #0f766e;
+  margin-right: 8rpx;
+}
+
+.pc-phase-name {
+  font-size: 25rpx;
+  font-weight: 700;
+  color: #0b1220;
+}
+
+.pc-phase-count {
+  font-size: 20rpx;
+  color: #94a3b8;
+  margin-left: 8rpx;
+}
+
+/* ── 动作行 ───────────────────────────────────────────── */
+.pc-item {
+  display: block;
+  padding: 10rpx 12rpx;
+  margin-bottom: 6rpx;
+  border-radius: 12rpx;
+  background: #f8fafb;
+}
+
+.pc-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pc-item-name {
+  font-size: 27rpx;
+  color: #0b1220;
+  flex: 1;
+  margin-right: 10rpx;
+}
+
+.pc-dose-wrap {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.pc-dose {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #0f766e;
+  background: #ecfdf5;
+  border-radius: 8rpx;
+  padding: 3rpx 10rpx;
+}
+
+.pc-load {
+  font-size: 21rpx;
+  color: #c2410c;
+  background: #fff7ed;
+  border-radius: 8rpx;
+  padding: 3rpx 8rpx;
+  margin-left: 6rpx;
+}
+
+.pc-item-note {
+  display: block;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #64748b;
+  margin-top: 4rpx;
+}
+
+/* ── 底部 ─────────────────────────────────────────────── */
+.pc-notes {
+  display: block;
+  margin-top: 16rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx dashed #e2e8f0;
+}
+
+.pc-note {
+  display: block;
+  font-size: 22rpx;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.pc-trace {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 19rpx;
+  color: #a8b3c2;
+}

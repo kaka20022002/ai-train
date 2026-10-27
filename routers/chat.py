@@ -31,6 +31,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import crud
+from agents.intent import (
+    INTENT_GENERATE,
+    INTENT_REVISE,
+    IntentResult,
+    classify_intent,
+)
+import chat_planning
 from coach_agent import CoachAgent, build_context
 from database import get_db
 
@@ -114,6 +121,14 @@ class ChatResponse(BaseModel):
     user_message: MessageResponse
     assistant_message: MessageResponse
     action_request: Optional[ActionRequestSchema] = None
+    # ── 这一轮若真的生成了计划，直接带结构化结果回来 ──────────────────────
+    # 前端据此渲染计划卡片；为 None 表示这一轮只做了问答。
+    plan: Optional[Dict[str, Any]] = None
+    safety: Optional[Dict[str, Any]] = None
+    #: 跑了哪几个 Agent、各阶段耗时 —— 让「到底过没过审查」可查
+    agent_trace: Optional[Dict[str, Any]] = None
+    #: 意图路由结果（generate_plan / revise_plan / ask）
+    intent: Optional[str] = None
 
 
 class TitleUpdateRequest(BaseModel):
@@ -178,6 +193,126 @@ def _ensure_conversation(
         return conv
 
     return crud.create_conversation(db, user_id=user_id, title=fallback_title)
+
+
+# =============================================================================
+# Helpers — 计划生成/修改的意图分派
+# =============================================================================
+# 需求：对话里要生成计划，必须走完整三个 Agent；修改与问答可以只过一部分。
+# 分类器在 agents.intent，这里只负责「按分类结果调管线 + 把结果拼进响应」。
+
+
+def _get_bridges():
+    """取三 Agent 的 LLM 装配。
+
+    动态导入而非模块级 import：``main`` 会 import 本模块，写死在顶部会循环导入。
+    运行时 ``main`` 已在 sys.modules 里，取到的是同一个对象，因此测试里
+    ``monkeypatch.setattr(main, "AGENT_BRIDGES", ...)`` 依然生效。
+    """
+    try:
+        import main as _main
+
+        return getattr(_main, "AGENT_BRIDGES", None)
+    except Exception:  # noqa: BLE001 - 拿不到就走降级后端
+        return None
+
+
+def _latest_feedback(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
+    """最近一次训练的反馈，作为动态约束喂给状态分析。"""
+    try:
+        session = crud.get_latest_session(db, user_id)
+    except Exception:  # noqa: BLE001
+        return None
+    return crud.session_to_feedback_dict(session) if session else None
+
+
+def _revisable_draft(db: Session, user_id: str):
+    """取最近一份可修订的草稿；老计划没有 draft_data，只能重新生成。"""
+    record = crud.get_latest_user_plan(db, user_id)
+    return chat_planning.draft_from_record(record)
+
+
+def _run_plan_turn(
+    db: Session,
+    *,
+    user_id: str,
+    message: str,
+    intent: IntentResult,
+    user_profile: Dict[str, Any],
+    history: Optional[List[Dict[str, str]]] = None,
+) -> Optional[chat_planning.PlanTurn]:
+    """按意图跑管线。失败返回 None，调用方退回教练问答。"""
+    from safety_sync import _get_engine
+
+    exercise_db = _get_engine().exercise_db
+    feedback = _latest_feedback(db, user_id)
+    bridges = _get_bridges()
+
+    record = crud.get_latest_user_plan(db, user_id)
+    draft = (
+        chat_planning.draft_from_record(record)
+        if intent.intent == INTENT_REVISE
+        else None
+    )
+    # 最近的用户原话：伤病常常只出现在对话里，档案是空的
+    history_text = "\n".join(
+        str(m.get("content") or "")
+        for m in (history or [])
+        if m.get("role") == "user"
+    )
+
+    try:
+        if draft is not None:
+            return chat_planning.run_revision_turn(
+                exercise_db=exercise_db,
+                user_profile=user_profile,
+                feedback=feedback,
+                instruction=message,
+                draft=draft,
+                prev_profile=chat_planning.profile_from_record(record),
+                history_text=history_text,
+                bridges=bridges,
+            )
+        return chat_planning.run_generation_turn(
+            exercise_db=exercise_db,
+            user_profile=user_profile,
+            feedback=feedback,
+            workout_type=intent.workout_hint or "full_body",
+            query=message,
+            bridges=bridges,
+        )
+    except Exception as exc:  # noqa: BLE001 - 生成失败不该让整轮对话报错
+        print(f"   ⚠️  plan turn failed ({intent.intent}): {exc}")
+        return None
+
+
+def _plan_response_payload(turn: "chat_planning.PlanTurn") -> Dict[str, Any]:
+    return {
+        "plan": turn.plan,
+        "safety": turn.safety,
+        "agent_trace": {
+            "agents": turn.agents_run,
+            "elapsed_ms": turn.elapsed_ms,
+            "stage_ms": turn.stage_ms,
+            "review_rounds": turn.review_rounds,
+            "revision_applied": turn.revision_applied,
+        },
+    }
+
+
+def _persist_plan(db: Session, turn: "chat_planning.PlanTurn") -> None:
+    """落库：下一轮用户说「把深蹲去掉」时，要靠 draft_data 才改得动；
+    profile_data 则是修订时的安全地板（伤病可能只存在于对话里）。"""
+    try:
+        crud.save_generated_plan(
+            db,
+            turn.plan,
+            generator_version=str(turn.plan.get("generator_version") or "unknown"),
+            draft_data=turn.draft.to_dict() if turn.draft else None,
+            profile_data=turn.profile.to_dict() if turn.profile else None,
+        )
+    except Exception as exc:  # noqa: BLE001 - 存不下来不影响这一轮交付
+        print(f"   ⚠️  failed to persist plan: {exc}")
 
 
 # =============================================================================
@@ -299,9 +434,59 @@ def chat(
     user_msg = crud.add_message(db, conv.conversation_id, "user", request.message)
 
     # Build context + load prior history (last 30 turns)
-    context = build_context(db, request.user_id, history_window=history_window)
     prior_messages = crud.get_messages(db, conv.conversation_id, limit=30)
     history_dicts = crud.messages_to_history_dicts(prior_messages[:-1])  # exclude the just-added user message
+
+    # ── 意图分派：要计划就跑三 Agent，问答才交给教练 ────────────────────
+    user = crud.get_user(db, request.user_id)
+    user_profile = (
+        crud.user_to_profile_dict(user) if user else {"user_id": request.user_id}
+    )
+    has_plan = _revisable_draft(db, request.user_id) is not None
+    intent = classify_intent(
+        request.message,
+        has_plan=has_plan,
+        history=[str(m.get("content") or "") for m in history_dicts[-4:]],
+    )
+
+    if intent.intent in (INTENT_GENERATE, INTENT_REVISE):
+        turn = _run_plan_turn(
+            db,
+            user_id=request.user_id,
+            message=request.message,
+            intent=intent,
+            user_profile=user_profile,
+            history=history_dicts,
+        )
+        if turn is not None:
+            payload = _plan_response_payload(turn)
+            asst_msg = crud.add_message(
+                db,
+                conv.conversation_id,
+                role="assistant",
+                content=turn.text,
+                action_request={
+                    "tool": "generated_plan",
+                    "args": {"plan_id": turn.plan.get("plan_id")},
+                },
+            )
+            _persist_plan(db, turn)
+            return ChatResponse(
+                conversation_id=conv.conversation_id,
+                user_message=_msg_to_response(user_msg),
+                assistant_message=_msg_to_response(asst_msg),
+                intent=intent.intent,
+                **payload,
+            )
+
+    # 顺序：先有历史再建上下文 —— 教练侧的风险分析要参考用户前面说过的话
+    context = build_context(
+        db,
+        request.user_id,
+        history_window=history_window,
+        message=request.message,
+        history=history_dicts,
+    )
 
     response = _agent.respond(
         context=context,
@@ -323,6 +508,7 @@ def chat(
         user_message=_msg_to_response(user_msg),
         assistant_message=_msg_to_response(asst_msg),
         action_request=ActionRequestSchema(**action_dict) if action_dict else None,
+        intent=intent.intent,
     )
 
 
@@ -386,9 +572,74 @@ def chat_stream(
 
     user_msg = crud.add_message(db, conv.conversation_id, "user", request.message)
 
-    context = build_context(db, request.user_id, history_window=history_window)
     prior = crud.get_messages(db, conv.conversation_id, limit=30)
     history_dicts = crud.messages_to_history_dicts(prior[:-1])
+
+    # ── 要计划的对话同样必须过三 Agent（流式与同步行为保持一致）────────
+    _user = crud.get_user(db, request.user_id)
+    _profile = crud.user_to_profile_dict(_user) if _user else {"user_id": request.user_id}
+    intent = classify_intent(
+        request.message,
+        has_plan=_revisable_draft(db, request.user_id) is not None,
+        history=[str(m.get("content") or "") for m in history_dicts[-4:]],
+    )
+
+    if intent.intent in (INTENT_GENERATE, INTENT_REVISE):
+
+        def plan_event_stream():
+            yield _sse_format({
+                "type": "start",
+                "conversation_id": conv.conversation_id,
+                "user_message_id": user_msg.id,
+                "intent": intent.intent,
+            })
+            yield _sse_format({
+                "type": "status",
+                "text": "正在跑三个 Agent（风险分析 → 生成 → 安全审查），约 60-90 秒…",
+            })
+            turn = _run_plan_turn(
+                db,
+                user_id=request.user_id,
+                message=request.message,
+                intent=intent,
+                user_profile=_profile,
+                history=history_dicts,
+            )
+            if turn is None:
+                yield _sse_format({"type": "error", "message": "计划生成失败，请稍后重试"})
+                return
+            asst = crud.add_message(
+                db,
+                conv.conversation_id,
+                role="assistant",
+                content=turn.text,
+                action_request={
+                    "tool": "generated_plan",
+                    "args": {"plan_id": turn.plan.get("plan_id")},
+                },
+            )
+            _persist_plan(db, turn)
+            yield _sse_format({
+                "type": "final",
+                "content": turn.text,
+                "assistant_message_id": asst.id,
+                "intent": intent.intent,
+                **_plan_response_payload(turn),
+            })
+
+        return StreamingResponse(
+            plan_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    context = build_context(
+        db,
+        request.user_id,
+        history_window=history_window,
+        message=request.message,
+        history=history_dicts,
+    )
 
     def event_stream():
         # Initial event tells the client what conversation we're on

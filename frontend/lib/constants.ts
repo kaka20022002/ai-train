@@ -48,6 +48,7 @@ export const PHASE_META: Record<string, { cn: string; color: string }> = {
 
 export const TYPE_CN: Record<string, string> = {
   Compound: "复合动作", Isolation: "孤立动作", Isometric: "等长动作",
+  Warmup: "动态热身", Stretch: "静态拉伸", Activation: "激活稳定",
 };
 
 // ── 器材感知（Sprint 3）──────────────────────────────────────────────────────

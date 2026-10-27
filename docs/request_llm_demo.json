@@ -1,0 +1,41 @@
+{
+  "user_profile": {
+    "user_id": "usr_demo_llm",
+    "basic_info": {"age": 30, "gender": "male", "height_cm": 178, "weight_kg": 76},
+    "fitness_level": "beginner",
+    "fitness_goal": "strength",
+    "training_frequency": 2,
+    "available_equipment": ["bodyweight", "dumbbell"],
+    "medical_history": [
+      {
+        "location": "knee",
+        "condition": "meniscus_tear",
+        "severity": "high",
+        "notes": "蹲到底膝内侧刺痛，术后两年仍不敢全幅度深蹲"
+      },
+      {
+        "location": "shoulder",
+        "condition": "impingement",
+        "severity": "low",
+        "notes": "过顶推举到最后会有点夹"
+      }
+    ]
+  },
+  "feedback": {
+    "session_id": "sess_demo_llm",
+    "user_id": "usr_demo_llm",
+    "date": "2026-10-26",
+    "rpe": 8,
+    "completion_rate": 0.8,
+    "pain_feedback": {
+      "has_pain": true,
+      "pain_location": "knee",
+      "pain_severity": 3,
+      "pain_type": "sharp",
+      "trigger_moment": "蹲到底"
+    },
+    "notes": "昨晚没睡好，大腿后侧还有点酸"
+  },
+  "workout_type": "lower_body",
+  "query": "今天只有三十分钟，想练下肢，别让膝盖难受"
+}

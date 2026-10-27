@@ -27,7 +27,13 @@
       "dumbbell": "Goblet Squat",
       "bodyweight": "Bulgarian Split Squat",
       "machine": "Leg Press"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "squat",
+    "is_timed": false,
+    "name_zh": "杠铃深蹲"
   },
   {
     "id": 2,
@@ -54,7 +60,13 @@
       "dumbbell": "Dumbbell Romanian Deadlift",
       "bodyweight": "Single-Leg Hip Hinge",
       "kettlebell": "Kettlebell Swing"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "传统硬拉"
   },
   {
     "id": 3,
@@ -81,7 +93,13 @@
       "dumbbell": "Incline Dumbbell Press",
       "bodyweight": "Push-Up",
       "machine": "Machine Chest Press"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "杠铃卧推"
   },
   {
     "id": 4,
@@ -107,7 +125,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Arnold Press",
       "bodyweight": "Pike Push-Up"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "push_v",
+    "is_timed": false,
+    "name_zh": "站姿推举"
   },
   {
     "id": 5,
@@ -133,7 +157,13 @@
       "machine": "Lat Pulldown",
       "resistance_band": "Band-Assisted Pull-Up",
       "dumbbell": "Dumbbell Row"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "pull_v",
+    "is_timed": false,
+    "name_zh": "引体向上"
   },
   {
     "id": 6,
@@ -159,7 +189,13 @@
       "dumbbell": "Dumbbell Row",
       "cable": "Seated Cable Row",
       "machine": "Chest-Supported Row"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false,
+    "name_zh": "杠铃划船"
   },
   {
     "id": 7,
@@ -185,7 +221,14 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Walking Lunge",
       "bodyweight": "Reverse Lunge"
-    }
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "lunge",
+    "is_timed": false,
+    "name_zh": "行走弓步"
   },
   {
     "id": 8,
@@ -209,7 +252,13 @@
     "alternatives_by_equipment": {
       "bodyweight": "Wall Sit",
       "resistance_band": "Band Leg Extension"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "knee_extension",
+    "is_timed": false,
+    "name_zh": "腿屈伸"
   },
   {
     "id": 9,
@@ -232,7 +281,14 @@
     "alternatives_by_equipment": {
       "bodyweight": "Nordic Curl",
       "resistance_band": "Band Leg Curl"
-    }
+    },
+    "phase": [
+      "accessories",
+      "activation"
+    ],
+    "motion_pattern": "knee_flexion",
+    "is_timed": false,
+    "name_zh": "腿弯举"
   },
   {
     "id": 10,
@@ -257,7 +313,13 @@
       "barbell": "Barbell Back Squat",
       "dumbbell": "Goblet Squat",
       "bodyweight": "Bodyweight Squat"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "squat",
+    "is_timed": false,
+    "name_zh": "腿举"
   },
   {
     "id": 11,
@@ -281,7 +343,14 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Romanian Deadlift",
       "bodyweight": "Single-Leg Romanian Deadlift"
-    }
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "罗马尼亚硬拉"
   },
   {
     "id": 12,
@@ -306,7 +375,14 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Hip Thrust",
       "bodyweight": "Glute Bridge"
-    }
+    },
+    "phase": [
+      "main_lifts",
+      "activation"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "臀推"
   },
   {
     "id": 13,
@@ -329,7 +405,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Calf Raise",
       "machine": "Seated Calf Raise"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "calf",
+    "is_timed": false,
+    "name_zh": "提踵"
   },
   {
     "id": 14,
@@ -355,7 +437,13 @@
       "barbell": "Barbell Bench Press",
       "bodyweight": "Incline Push-Up",
       "machine": "Machine Chest Press"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "上斜哑铃推举"
   },
   {
     "id": 15,
@@ -380,7 +468,13 @@
       "cable": "Cable Crossover",
       "machine": "Pec Deck",
       "resistance_band": "Band Fly"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "哑铃飞鸟"
   },
   {
     "id": 16,
@@ -403,7 +497,13 @@
       "dumbbell": "Dumbbell Fly",
       "machine": "Pec Deck",
       "resistance_band": "Band Fly"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "绳索夹胸"
   },
   {
     "id": 17,
@@ -428,7 +528,13 @@
       "pull_up_bar": "Pull-Up",
       "resistance_band": "Band Pulldown",
       "dumbbell": "Dumbbell Row"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "pull_v",
+    "is_timed": false,
+    "name_zh": "高位下拉"
   },
   {
     "id": 18,
@@ -452,7 +558,13 @@
       "dumbbell": "Dumbbell Row",
       "barbell": "Barbell Row",
       "resistance_band": "Band Row"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false,
+    "name_zh": "坐姿绳索划船"
   },
   {
     "id": 19,
@@ -477,7 +589,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Row",
       "cable": "Seated Cable Row"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false,
+    "name_zh": "T杠划船"
   },
   {
     "id": 20,
@@ -500,7 +618,14 @@
     "alternatives_by_equipment": {
       "resistance_band": "Band Pull-Apart",
       "dumbbell": "Rear Delt Raise"
-    }
+    },
+    "phase": [
+      "accessories",
+      "activation"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false,
+    "name_zh": "面拉"
   },
   {
     "id": 21,
@@ -523,7 +648,13 @@
     "alternatives_by_equipment": {
       "cable": "Cable Lateral Raise",
       "resistance_band": "Band Lateral Raise"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "abduction",
+    "is_timed": false,
+    "name_zh": "侧平举"
   },
   {
     "id": 22,
@@ -547,7 +678,13 @@
     "alternatives_by_equipment": {
       "barbell": "Overhead Press",
       "bodyweight": "Pike Push-Up"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "push_v",
+    "is_timed": false,
+    "name_zh": "阿诺德推举"
   },
   {
     "id": 23,
@@ -572,7 +709,13 @@
       "dumbbell": "Dumbbell Curl",
       "cable": "Cable Curl",
       "resistance_band": "Band Curl"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "elbow_flexion",
+    "is_timed": false,
+    "name_zh": "杠铃弯举"
   },
   {
     "id": 24,
@@ -594,7 +737,13 @@
     "alternatives_by_equipment": {
       "cable": "Cable Hammer Curl",
       "resistance_band": "Band Hammer Curl"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "elbow_flexion",
+    "is_timed": false,
+    "name_zh": "哑铃锤式弯举"
   },
   {
     "id": 25,
@@ -618,7 +767,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Incline Dumbbell Curl",
       "cable": "Cable Curl"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "elbow_flexion",
+    "is_timed": false,
+    "name_zh": "牧师凳弯举"
   },
   {
     "id": 26,
@@ -643,7 +798,14 @@
     "alternatives_by_equipment": {
       "cable": "Tricep Pushdown",
       "dumbbell": "Overhead Tricep Extension"
-    }
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "双杠臂屈伸"
   },
   {
     "id": 27,
@@ -666,7 +828,13 @@
       "dumbbell": "Overhead Tricep Extension",
       "bodyweight": "Close-Grip Push-Up",
       "resistance_band": "Band Pushdown"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "elbow_extension",
+    "is_timed": false,
+    "name_zh": "三头下压"
   },
   {
     "id": 28,
@@ -691,7 +859,13 @@
     "alternatives_by_equipment": {
       "cable": "Tricep Pushdown",
       "bodyweight": "Close-Grip Push-Up"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "elbow_extension",
+    "is_timed": false,
+    "name_zh": "仰卧臂屈伸"
   },
   {
     "id": 29,
@@ -714,7 +888,13 @@
     "alternatives_by_equipment": {
       "resistance_band": "Band Wrist Curl",
       "bodyweight": "Grip Squeeze"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "wrist",
+    "is_timed": false,
+    "name_zh": "腕弯举"
   },
   {
     "id": 30,
@@ -735,7 +915,14 @@
     "required_equipment": [
       "bodyweight"
     ],
-    "alternatives_by_equipment": {}
+    "alternatives_by_equipment": {},
+    "phase": [
+      "accessories",
+      "activation"
+    ],
+    "motion_pattern": "core",
+    "is_timed": true,
+    "name_zh": "平板支撑"
   },
   {
     "id": 31,
@@ -755,7 +942,13 @@
     "required_equipment": [
       "bodyweight"
     ],
-    "alternatives_by_equipment": {}
+    "alternatives_by_equipment": {},
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "name_zh": "卷腹"
   },
   {
     "id": 32,
@@ -780,7 +973,13 @@
     "alternatives_by_equipment": {
       "bodyweight": "Lying Leg Raise",
       "machine": "Captain's Chair Knee Raise"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "name_zh": "悬垂举腿"
   },
   {
     "id": 33,
@@ -800,7 +999,13 @@
     "required_equipment": [
       "bodyweight"
     ],
-    "alternatives_by_equipment": {}
+    "alternatives_by_equipment": {},
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "name_zh": "俄罗斯转体"
   },
   {
     "id": 34,
@@ -824,7 +1029,13 @@
     "alternatives_by_equipment": {
       "bodyweight": "Bird Dog",
       "machine": "Hyperextension Bench"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "山羊挺身"
   },
   {
     "id": 35,
@@ -848,7 +1059,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Romanian Deadlift",
       "bodyweight": "Bird Dog"
-    }
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "早安式"
   },
   {
     "id": 36,
@@ -877,7 +1094,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Goblet Squat",
       "bodyweight": "Bodyweight Squat"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "squat",
+    "is_timed": false,
+    "name_zh": "前蹲"
   },
   {
     "id": 37,
@@ -901,7 +1124,13 @@
     ],
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Bulgarian Split Squat"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "lunge",
+    "is_timed": false,
+    "name_zh": "保加利亚分腿蹲"
   },
   {
     "id": 38,
@@ -926,7 +1155,13 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Sumo Deadlift",
       "kettlebell": "Kettlebell Sumo Deadlift"
-    }
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "name_zh": "相扑硬拉"
   },
   {
     "id": 39,
@@ -951,7 +1186,15 @@
     "alternatives_by_equipment": {
       "dumbbell": "Dumbbell Floor Press",
       "barbell": "Barbell Bench Press"
-    }
+    },
+    "phase": [
+      "main_lifts",
+      "accessories",
+      "activation"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "name_zh": "俯卧撑"
   },
   {
     "id": 40,
@@ -973,6 +1216,915 @@
     "alternatives_by_equipment": {
       "barbell": "Barbell Shrug",
       "cable": "Cable Shrug"
+    },
+    "phase": [
+      "accessories"
+    ],
+    "motion_pattern": "shrug",
+    "is_timed": false,
+    "name_zh": "哑铃耸肩"
+  },
+  {
+    "id": 41,
+    "name": "Arm Circles",
+    "name_zh": "手臂绕环",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Shoulder Pass-Through",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "band": "Shoulder Pass-Through"
     }
+  },
+  {
+    "id": 42,
+    "name": "Leg Swings",
+    "name_zh": "前后摆腿",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Ankle Rocks",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 43,
+    "name": "Cat-Cow",
+    "name_zh": "猫牛式",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Erector Spinae",
+    "involved_joints": [
+      "spine"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Thoracic Rotation",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 44,
+    "name": "Hip Circles",
+    "name_zh": "髋关节绕环",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Leg Swings",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 45,
+    "name": "Shoulder Pass-Through",
+    "name_zh": "肩部绕环",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Arm Circles",
+    "required_equipment": [
+      "bodyweight",
+      "band"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Arm Circles"
+    }
+  },
+  {
+    "id": 46,
+    "name": "Inchworm",
+    "name_zh": "毛毛虫爬行",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "shoulder",
+      "spine",
+      "hip"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Cat-Cow",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 47,
+    "name": "Marching in Place",
+    "name_zh": "原地踏步",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "warmup",
+    "is_timed": false,
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Leg Swings",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 48,
+    "name": "World's Greatest Stretch",
+    "name_zh": "世界最伟大拉伸",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "spine",
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Hip Flexor Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 49,
+    "name": "Ankle Rocks",
+    "name_zh": "踝关节前后倾",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Gastrocnemius",
+    "involved_joints": [
+      "ankle"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Marching in Place",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 50,
+    "name": "Thoracic Rotation",
+    "name_zh": "胸椎旋转",
+    "type": "Warmup",
+    "phase": [
+      "warm_up"
+    ],
+    "motion_pattern": "mobility",
+    "is_timed": false,
+    "target_muscle": "Obliques",
+    "involved_joints": [
+      "spine",
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Cat-Cow",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 51,
+    "name": "Standing Hamstring Stretch",
+    "name_zh": "站姿腘绳肌拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "knee",
+      "hip"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Figure-4 Glute Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 52,
+    "name": "Standing Quad Stretch",
+    "name_zh": "站姿股四头肌拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "knee",
+      "hip"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Hip Flexor Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 53,
+    "name": "Wall Calf Stretch",
+    "name_zh": "靠墙小腿拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Gastrocnemius",
+    "involved_joints": [
+      "ankle",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Standing Hamstring Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 54,
+    "name": "Doorway Chest Stretch",
+    "name_zh": "门框胸部拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Pectorals",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Cross-Body Shoulder Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 55,
+    "name": "Child's Pose",
+    "name_zh": "婴儿式",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Erector Spinae",
+    "involved_joints": [
+      "spine",
+      "hip",
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Kneeling Lat Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 56,
+    "name": "Figure-4 Glute Stretch",
+    "name_zh": "四字臀肌拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Standing Hamstring Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 57,
+    "name": "Cross-Body Shoulder Stretch",
+    "name_zh": "交叉肩部拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Rear Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Doorway Chest Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 58,
+    "name": "Neck Side Stretch",
+    "name_zh": "颈侧拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Trapezius",
+    "involved_joints": [
+      "neck"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Cross-Body Shoulder Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 59,
+    "name": "Hip Flexor Stretch",
+    "name_zh": "髂腰肌拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Standing Quad Stretch",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 60,
+    "name": "Kneeling Lat Stretch",
+    "name_zh": "跪姿背阔肌拉伸",
+    "type": "Stretch",
+    "phase": [
+      "cool_down"
+    ],
+    "motion_pattern": "stretch",
+    "is_timed": true,
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Child's Pose",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 61,
+    "name": "Glute Bridge",
+    "name_zh": "臀桥",
+    "type": "Activation",
+    "phase": [
+      "activation",
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false,
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Hip Thrust",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 62,
+    "name": "Bird Dog",
+    "name_zh": "鸟狗式",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "target_muscle": "Rectus Abdominis",
+    "involved_joints": [
+      "spine",
+      "hip",
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Dead Bug",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 63,
+    "name": "Dead Bug",
+    "name_zh": "死虫式",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "target_muscle": "Rectus Abdominis",
+    "involved_joints": [
+      "spine",
+      "hip"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Bird Dog",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 64,
+    "name": "Band Pull-Apart",
+    "name_zh": "弹力带拉开",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false,
+    "target_muscle": "Rear Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Face Pull",
+    "required_equipment": [
+      "band"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Shoulder Pass-Through"
+    }
+  },
+  {
+    "id": 65,
+    "name": "Clamshell",
+    "name_zh": "蚌式开合",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "abduction",
+    "is_timed": false,
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "knee"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Single-Leg Balance",
+    "required_equipment": [
+      "band",
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Single-Leg Balance"
+    }
+  },
+  {
+    "id": 66,
+    "name": "Wall Slide",
+    "name_zh": "靠墙滑臂",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "push_v",
+    "is_timed": false,
+    "target_muscle": "Deltoids",
+    "involved_joints": [
+      "shoulder"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Scapular Push-Up",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 67,
+    "name": "Pallof Press",
+    "name_zh": "帕洛夫推举",
+    "type": "Activation",
+    "phase": [
+      "activation",
+      "accessories"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "target_muscle": "Obliques",
+    "involved_joints": [
+      "spine",
+      "shoulder"
+    ],
+    "risk_level": 2,
+    "contraindications": [],
+    "substitution": "Dead Bug",
+    "required_equipment": [
+      "cable",
+      "band"
+    ],
+    "alternatives_by_equipment": {
+      "band": "Band Pull-Apart",
+      "bodyweight": "Dead Bug"
+    }
+  },
+  {
+    "id": 68,
+    "name": "Suitcase Carry",
+    "name_zh": "单侧农夫行走",
+    "type": "Activation",
+    "phase": [
+      "activation",
+      "accessories"
+    ],
+    "motion_pattern": "core",
+    "is_timed": false,
+    "target_muscle": "Obliques",
+    "involved_joints": [
+      "spine",
+      "shoulder",
+      "knee"
+    ],
+    "risk_level": 2,
+    "contraindications": [],
+    "substitution": "Pallof Press",
+    "required_equipment": [
+      "dumbbell",
+      "kettlebell"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Dead Bug"
+    }
+  },
+  {
+    "id": 69,
+    "name": "Single-Leg Balance",
+    "name_zh": "单腿站立",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "stability",
+    "is_timed": false,
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Clamshell",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 70,
+    "name": "Scapular Push-Up",
+    "name_zh": "肩胛俯卧撑",
+    "type": "Activation",
+    "phase": [
+      "activation"
+    ],
+    "motion_pattern": "push_h",
+    "is_timed": false,
+    "target_muscle": "Rhomboids",
+    "involved_joints": [
+      "shoulder",
+      "elbow"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Wall Slide",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {}
+  },
+  {
+    "id": 71,
+    "name": "Goblet Squat",
+    "name_zh": "哑铃高脚杯深蹲",
+    "type": "Compound",
+    "target_muscle": "Quadriceps",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "patellar_tendonitis"
+    ],
+    "substitution": "Barbell Back Squat",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Bodyweight Squat"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "squat",
+    "is_timed": false
+  },
+  {
+    "id": 72,
+    "name": "Dumbbell Romanian Deadlift",
+    "name_zh": "哑铃罗马尼亚硬拉",
+    "type": "Compound",
+    "target_muscle": "Hamstrings",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation"
+    ],
+    "substitution": "Romanian Deadlift",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Romanian Deadlift",
+      "bodyweight": "Single-Leg Glute Bridge"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 73,
+    "name": "Dumbbell Sumo Deadlift",
+    "name_zh": "哑铃相扑硬拉",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "knee",
+      "ankle"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "patellar_tendonitis"
+    ],
+    "substitution": "Sumo Deadlift",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Sumo Deadlift"
+    },
+    "phase": [
+      "main_lifts"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 74,
+    "name": "Single-Leg Glute Bridge",
+    "name_zh": "单腿臀桥",
+    "type": "Compound",
+    "target_muscle": "Gluteus Maximus",
+    "involved_joints": [
+      "hip",
+      "spine"
+    ],
+    "risk_level": 1,
+    "contraindications": [],
+    "substitution": "Hip Thrust",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "Dumbbell Hip Thrust"
+    },
+    "phase": [
+      "main_lifts",
+      "activation"
+    ],
+    "motion_pattern": "hinge",
+    "is_timed": false
+  },
+  {
+    "id": 75,
+    "name": "One-Arm Dumbbell Row",
+    "name_zh": "哑铃单臂划船",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement"
+    ],
+    "substitution": "Barbell Row",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "bodyweight": "Inverted Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
+  },
+  {
+    "id": 76,
+    "name": "Dumbbell Bent-Over Row",
+    "name_zh": "哑铃俯身划船",
+    "type": "Compound",
+    "target_muscle": "Rhomboids",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "lumbar_herniation",
+      "shoulder_impingement"
+    ],
+    "substitution": "Barbell Row",
+    "required_equipment": [
+      "dumbbell"
+    ],
+    "alternatives_by_equipment": {
+      "barbell": "Barbell Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
+  },
+  {
+    "id": 77,
+    "name": "Inverted Row",
+    "name_zh": "反向划船",
+    "type": "Compound",
+    "target_muscle": "Latissimus Dorsi",
+    "involved_joints": [
+      "shoulder",
+      "spine"
+    ],
+    "risk_level": 2,
+    "contraindications": [
+      "shoulder_impingement"
+    ],
+    "substitution": "One-Arm Dumbbell Row",
+    "required_equipment": [
+      "bodyweight"
+    ],
+    "alternatives_by_equipment": {
+      "dumbbell": "One-Arm Dumbbell Row"
+    },
+    "phase": [
+      "main_lifts",
+      "accessories"
+    ],
+    "motion_pattern": "pull_h",
+    "is_timed": false
   }
 ]

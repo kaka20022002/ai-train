@@ -191,7 +191,14 @@ JOINT_CN = {
     "hamstring": "腘绳肌", "quadriceps": "股四头肌",
 }
 
-TYPE_CN = {"Compound": "复合动作", "Isolation": "孤立动作", "Isometric": "等长动作"}
+TYPE_CN = {
+    "Compound": "复合动作",
+    "Isolation": "孤立动作",
+    "Isometric": "等长动作",
+    "Warmup": "动态热身",
+    "Stretch": "静态拉伸",
+    "Activation": "激活稳定",
+}
 
 WORKOUT_TYPE_CN = {
     "full_body": "全身训练", "upper_body": "上肢训练", "lower_body": "下肢训练",
@@ -1281,7 +1288,7 @@ with tab_db:
     db_col1, db_col2, db_col3 = st.columns(3)
     filter_type = db_col1.selectbox(
         "动作类型",
-        ["全部", "Compound", "Isolation", "Isometric"],
+        ["全部", "Compound", "Isolation", "Isometric", "Warmup", "Stretch", "Activation"],
         format_func=lambda x: "全部" if x == "全部" else TYPE_CN.get(x, x),
         key="db_type",
     )

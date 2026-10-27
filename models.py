@@ -69,6 +69,13 @@ class GeneratedPlan(Base):
     user_id = Column(String(64), index=True, nullable=False)
     workout_type = Column(String(64), nullable=False)
     plan_data = Column(JSON, nullable=False)          # full export_plan_as_json dict
+    # PlanDraft.to_dict(): 动作的 exercise_id / impact / load_pct 等原始字段。
+    # plan_data 里只有渲染后的名字，无法反查动作库 —— 用户说「把深蹲去掉」
+    # 需要拿真正的草稿去做修订，所以另存一份。
+    draft_data = Column(JSON, nullable=True)
+    # RiskProfile.to_dict(): 生成时的风险档案。对话内修订要拿它当「安全地板」，
+    # 否则用户说一句「换个动作」，重跑状态分析就会把上一轮的伤病约束冲掉。
+    profile_data = Column(JSON, nullable=True)
     generator_version = Column(String(32), default="unknown")
     generated_at = Column(DateTime(timezone=True), default=_utcnow)
 
