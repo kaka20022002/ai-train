@@ -142,10 +142,57 @@ export interface TrainingSession {
   notes?: string;
 }
 
+export interface ChatPlanExercise {
+  name: string;
+  name_zh?: string;
+  sets?: number;
+  reps?: string | number;
+  rest_seconds?: number;
+  load_pct?: number;
+  notes?: string;
+  target_muscle?: string;
+}
+
+export interface ChatPlan {
+  plan_id: string;
+  user_id?: string;
+  workout_type: string;
+  estimated_duration_minutes: number;
+  phases: Record<string, ChatPlanExercise[]>;
+  safety_notes?: string[];
+  generator_version?: string;
+  date?: string;
+}
+
+export interface ChatSafety {
+  passed: boolean;
+  review_mode?: string;
+  llm_verdict?: string;
+  reviewer_note?: string;
+  checked_slots?: number;
+  violations?: Array<{ code: string; detail?: string; exercise_id?: number }>;
+  risk_level?: string;
+  clearance?: string;
+  risk_summary?: string;
+}
+
+/** 这一轮跑了哪几个 Agent —— 让「到底过没过审查」在前端也看得见 */
+export interface ChatAgentTrace {
+  agents: string[];
+  elapsed_ms?: number;
+  stage_ms?: Record<string, number>;
+  review_rounds?: number;
+  revision_applied?: boolean;
+}
+
 export interface ChatSyncResponse {
   conversation_id: string;
   user_message: { id: number; role: string; content: string };
   assistant_message: { id: number; role: string; content: string };
+  plan?: ChatPlan | null;
+  safety?: ChatSafety | null;
+  agent_trace?: ChatAgentTrace | null;
+  intent?: string;
 }
 
 export interface VideoEvidenceFrame {
@@ -472,8 +519,9 @@ export const api = {
     request<ChatSyncResponse>("/chat", {
       method: "POST",
       data: body,
-      // 命中伤病时本轮会先跑一次 state_risk 再回答，实测 11-40 秒
-      timeout: 120000,
+      // 问答：命中伤病时先跑一次 state_risk，实测 11-40 秒。
+      // 生成/修改计划：对话里要计划会直接跑三个 Agent，实测 60-100 秒。
+      timeout: 240000,
     }),
 
   analyzeVideo: uploadVideoAnalysis,

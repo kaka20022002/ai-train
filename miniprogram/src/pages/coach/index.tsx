@@ -2,13 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, Textarea, ScrollView } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { api, ensureLoggedIn } from "../../services/api";
+import type { ChatPlan, ChatSafety, ChatAgentTrace } from "../../services/api";
 import { createVoiceInput, type VoiceStatus } from "../../utils/voice-input";
 import MarkdownLite from "../../components/MarkdownLite";
+import PlanCard from "../../components/PlanCard";
 import "./index.scss";
 
 interface Bubble {
   role: "user" | "assistant";
   content: string;
+  plan?: ChatPlan | null;
+  safety?: ChatSafety | null;
+  trace?: ChatAgentTrace | null;
 }
 
 const QUICK = [
@@ -58,7 +63,16 @@ export default function CoachPage() {
       if (content.includes("本地教练模式") || content.includes("LLM 不可用")) {
         setOfflineHint(true);
       }
-      setMessages((prev) => [...prev, { role: "assistant", content }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content,
+          plan: res.plan || null,
+          safety: res.safety || null,
+          trace: res.agent_trace || null,
+        },
+      ]);
     } catch (e: any) {
       // 不再用固定的「连不上后端」兜底 —— 那句会把超时、跨域、500 全糊成
       // 一个原因，之前就是它把「等 20 秒超时」误报成「后端没启动」。
@@ -147,13 +161,20 @@ export default function CoachPage() {
           {messages.map((m, i) => (
             <View
               key={`${m.role}-${i}`}
-              className={`bubble ${m.role === "user" ? "me" : "bot"}`}
+              className={`bubble ${m.role === "user" ? "me" : "bot"} ${
+                m.plan ? "has-plan" : ""
+              }`}
             >
               {m.role === "assistant" && (
                 <Text className="bubble-role">Coach</Text>
               )}
               {m.role === "assistant" ? (
-                <MarkdownLite text={m.content} />
+                <View className="bubble-body">
+                  <MarkdownLite text={m.content} />
+                  {m.plan ? (
+                    <PlanCard plan={m.plan} safety={m.safety} trace={m.trace} />
+                  ) : null}
+                </View>
               ) : (
                 <Text className="bubble-text">{m.content}</Text>
               )}
@@ -161,8 +182,9 @@ export default function CoachPage() {
           ))}
           {sending && (
             <View className="bubble bot">
-              <Text className="bubble-text typing">
-                教练正在思考（含风险分析，约 20-40 秒）…
+              <Text className="bubble-text typing">教练正在处理…</Text>
+              <Text className="bubble-hint">
+                生成或修改计划会依次跑风险分析、计划生成、安全审查，约 60-90 秒
               </Text>
             </View>
           )}
