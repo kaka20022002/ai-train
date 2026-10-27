@@ -1,0 +1,8 @@
+# Optional dependencies for in-process V-Socrate video understanding.
+# Install requirements.txt first. Match torch to the CUDA version of the host.
+torch>=2.1.0
+transformers>=4.37.0,<6
+decord>=0.6.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pillow>=10.0.0

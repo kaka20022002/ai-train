@@ -181,6 +181,16 @@ export default function ProfilePage() {
             <Text className="menu-text">风险分析</Text>
             <Text className="menu-hint">安全评估</Text>
           </View>
+          <View
+            className="menu-item"
+            onClick={() =>
+              Taro.navigateTo({ url: "/pages/video-analysis/index" })
+            }
+          >
+            <Text className="menu-icon">▶</Text>
+            <Text className="menu-text">视频动作分析</Text>
+            <Text className="menu-hint">上传视频检查动作</Text>
+          </View>
         </View>
       </View>
 

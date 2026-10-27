@@ -1,6 +1,6 @@
 import Taro from "@tarojs/taro";
-import { request } from "../utils/request";
-import { STORAGE_KEYS } from "../utils/config";
+import { ApiError, request } from "../utils/request";
+import { API_BASE, STORAGE_KEYS } from "../utils/config";
 
 export interface AuthLoginResponse {
   access_token: string;
@@ -146,6 +146,32 @@ export interface ChatSyncResponse {
   conversation_id: string;
   user_message: { id: number; role: string; content: string };
   assistant_message: { id: number; role: string; content: string };
+}
+
+export interface VideoEvidenceFrame {
+  frame_id: number;
+  timestamp_seconds: number;
+}
+
+export interface VideoAnalysisResponse {
+  analysis_id: string;
+  conversation_id: string;
+  video_analysis: {
+    model: string;
+    summary: string;
+    reason: string;
+    evidence_frames: VideoEvidenceFrame[];
+    duration_seconds: number;
+    processing_seconds: number;
+    mock: boolean;
+  };
+  answer_model: {
+    provider: string;
+    model: string;
+  };
+  user_message: { id: number; role: string; content: string };
+  assistant_message: { id: number; role: string; content: string };
+  disclaimer: string;
 }
 
 export interface ExerciseRecord {
@@ -316,6 +342,61 @@ export function parseDefaultReps(reps: string): number {
   return Math.round((nums[0] + nums[1]) / 2);
 }
 
+async function uploadVideoAnalysis(
+  filePath: string,
+  body: {
+    user_id: string;
+    question: string;
+    conversation_id?: string;
+  }
+): Promise<VideoAnalysisResponse> {
+  const token = Taro.getStorageSync(STORAGE_KEYS.token) || "";
+  const header: Record<string, string> = {};
+  if (token) header.Authorization = `Bearer ${token}`;
+
+  let upload: Taro.uploadFile.SuccessCallbackResult;
+  try {
+    upload = await Taro.uploadFile({
+      url: `${API_BASE}/video-analysis`,
+      filePath,
+      name: "file",
+      header,
+      formData: {
+        user_id: body.user_id,
+        question: body.question,
+        ...(body.conversation_id
+          ? { conversation_id: body.conversation_id }
+          : {}),
+      },
+      // V-Socrate 会覆盖完整视频并多轮复核，真实推理通常超过普通请求的 20 秒。
+      timeout: 10 * 60 * 1000,
+    });
+  } catch (e: any) {
+    const detail = e?.errMsg || e?.message || "uploadFile:fail";
+    throw new Error(`视频上传或分析连接失败：${String(detail).slice(0, 80)}`);
+  }
+
+  let parsed: any;
+  try {
+    parsed =
+      typeof upload.data === "string" ? JSON.parse(upload.data) : upload.data;
+  } catch {
+    throw new Error("视频分析服务返回了无法解析的数据。");
+  }
+
+  if (upload.statusCode < 200 || upload.statusCode >= 300) {
+    const detail =
+      typeof parsed?.detail === "string"
+        ? parsed.detail
+        : JSON.stringify(parsed?.detail ?? parsed ?? {});
+    throw new ApiError(upload.statusCode, detail);
+  }
+  if (!parsed?.video_analysis || !parsed?.assistant_message?.content) {
+    throw new Error("视频分析结果缺少必要字段。");
+  }
+  return parsed as VideoAnalysisResponse;
+}
+
 export const api = {
   getUser: (userId: string) => request<UserProfile>(`/users/${userId}`),
 
@@ -385,6 +466,8 @@ export const api = {
     message: string;
     conversation_id?: string;
   }) => request<ChatSyncResponse>("/chat", { method: "POST", data: body }),
+
+  analyzeVideo: uploadVideoAnalysis,
 
   readiness: (userId: string) =>
     request<{

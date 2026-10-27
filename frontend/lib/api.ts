@@ -579,3 +579,112 @@ export const exercisesApi = {
       name ? `/exercises/guide-meta?name=${encodeURIComponent(name)}` : "/exercises/guide-meta"
     ) as Promise<ExerciseGuideMetaResponse>,
 };
+
+// ─── Video exercise analysis (multipart upload) ─────────────────────────────
+
+export interface VideoEvidenceFrame {
+  frame_id: number;
+  timestamp_seconds: number;
+}
+
+export interface VideoUnderstandingResult {
+  model: string;
+  summary: string;
+  reason: string;
+  evidence_frames: VideoEvidenceFrame[];
+  duration_seconds: number;
+  processing_seconds: number;
+  mock: boolean;
+}
+
+export interface VideoAnalysisResponse {
+  analysis_id: string;
+  conversation_id: string;
+  video_analysis: VideoUnderstandingResult;
+  answer_model: { provider: string; model: string };
+  user_message: Message;
+  assistant_message: Message;
+  action_request?: ActionRequest | null;
+  disclaimer: string;
+}
+
+export interface VideoAnalysisRequest {
+  file: File;
+  question: string;
+  userId: string;
+  conversationId?: string;
+}
+
+function fastApiError(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return String(item);
+      })
+      .join("；");
+  }
+  return fallback;
+}
+
+export const videoAnalysisApi = {
+  analyze: (
+    body: VideoAnalysisRequest,
+    options?: {
+      onUploadProgress?: (percent: number) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<VideoAnalysisResponse> =>
+    new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("file", body.file);
+      form.append("question", body.question);
+      form.append("user_id", body.userId);
+      if (body.conversationId) {
+        form.append("conversation_id", body.conversationId);
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${BASE}/video-analysis`);
+      xhr.responseType = "json";
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          options?.onUploadProgress?.(
+            Math.min(100, Math.round((event.loaded / event.total) * 100)),
+          );
+        }
+      };
+      xhr.upload.onload = () => options?.onUploadProgress?.(100);
+      xhr.onload = () => {
+        const payload = xhr.response as unknown;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(payload as VideoAnalysisResponse);
+          return;
+        }
+        reject(
+          new Error(
+            fastApiError(payload, `视频分析失败（HTTP ${xhr.status}）`),
+          ),
+        );
+      };
+      xhr.onerror = () => reject(new Error("无法连接视频分析服务，请确认后端已启动。"));
+      xhr.onabort = () => reject(new DOMException("视频分析已取消", "AbortError"));
+
+      const abort = () => xhr.abort();
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          abort();
+          return;
+        }
+        options.signal.addEventListener("abort", abort, { once: true });
+      }
+      xhr.onloadend = () => options?.signal?.removeEventListener("abort", abort);
+      xhr.send(form);
+    }),
+};

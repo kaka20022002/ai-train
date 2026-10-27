@@ -70,6 +70,59 @@
   line-height: 1.5;
 }
 
+.video-analysis-entry {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 16rpx;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid rgba(15, 118, 110, 0.16);
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6rpx 18rpx rgba(11, 18, 32, 0.04);
+}
+
+.video-analysis-entry:active {
+  background: #ecfdf5;
+}
+
+.video-entry-icon {
+  width: 50rpx;
+  height: 50rpx;
+  line-height: 50rpx;
+  border-radius: 14rpx;
+  background: #0f1419;
+  color: #14b8a6;
+  text-align: center;
+  font-size: 20rpx;
+  flex-shrink: 0;
+}
+
+.video-entry-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-entry-title {
+  display: block;
+  color: #0b1220;
+  font-size: 25rpx;
+  font-weight: 650;
+}
+
+.video-entry-hint {
+  display: block;
+  margin-top: 3rpx;
+  color: #64748b;
+  font-size: 20rpx;
+}
+
+.video-entry-arrow {
+  color: #0f766e;
+  font-size: 40rpx;
+  line-height: 1;
+}
+
 .msg-scroll {
   flex: 1;
   height: 0;

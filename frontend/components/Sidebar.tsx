@@ -14,6 +14,7 @@ import {
   PlayCircle,
   MessageCircle,
   Sparkles,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const NAV = [
   { href: "/risk", icon: ShieldAlert, label: "风险分析" },
   { href: "/exercises", icon: BookOpen, label: "动作库" },
   { href: "/chat", icon: MessageCircle, label: "AI 教练" },
+  { href: "/video-analysis", icon: Video, label: "视频分析" },
   { href: "/profile", icon: User, label: "我的档案" },
 ] as const;
 

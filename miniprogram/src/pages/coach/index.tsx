@@ -123,6 +123,17 @@ export default function CoachPage() {
             当前为本地教练模式：请检查 DeepSeek API 余额与密钥配置。
           </Text>
         )}
+        <View
+          className="video-analysis-entry"
+          onClick={() => Taro.navigateTo({ url: "/pages/video-analysis/index" })}
+        >
+          <Text className="video-entry-icon">▶</Text>
+          <View className="video-entry-copy">
+            <Text className="video-entry-title">上传视频分析动作</Text>
+            <Text className="video-entry-hint">检查动作问题与潜在受伤风险</Text>
+          </View>
+          <Text className="video-entry-arrow">›</Text>
+        </View>
       </View>
 
       <ScrollView scrollY className="msg-scroll" scrollWithAnimation>

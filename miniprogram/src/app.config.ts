@@ -11,6 +11,7 @@ export default defineAppConfig({
     "pages/generate/index",
     "pages/recommendations/index",
     "pages/risk/index",
+    "pages/video-analysis/index",
   ],
   window: {
     backgroundTextStyle: "light",
@@ -18,6 +19,11 @@ export default defineAppConfig({
     navigationBarTitleText: "AI 健身教练",
     navigationBarTextStyle: "white",
     backgroundColor: "#f2f4f6",
+  },
+  networkTimeout: {
+    request: 20000,
+    uploadFile: 600000,
+    downloadFile: 60000,
   },
   // 录音权限在使用时通过 authorize 申请；permission.scope.record 在新基础库/游客模式下会报「无效」
   requiredPrivateInfos: [],

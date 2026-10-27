@@ -155,3 +155,60 @@ python plan_generator_mock.py
 2. `RiskAssessmentEngine` 基于 `exercise_db.json` + 伤病史做静态风险评估，并基于反馈做动态约束。
 3. `PlanGeneratorMock`（Mock 或真实 LLM）在安全动作集合内生成完整的训练计划。
 4. FastAPI 将计划按结构化 JSON 返回，包含分阶段动作和安全提示等信息。
+
+## 视频动作安全分析
+
+网页端 `/video-analysis` 支持上传一段运动视频并输入问题，例如：
+
+- “我的动作在整个视频中有没有问题？”
+- “这个深蹲动作是否存在可能增加受伤风险的模式？”
+
+后端使用两阶段模型链路：
+
+1. V-Socrate-1020 使用 CLIP + Qwen 多模态 vLLM 搜索并复核关键帧；
+2. 当前 `LLM_PROVIDER`（`.env.example` 默认 DeepSeek）将视频证据与用户伤病档案、
+   近期疼痛和训练历史结合，生成最终中文答复。
+
+DeepSeek 不直接读取视频帧。原始
+`Videoagent/V-Socrate-1020` 目录保持不变；应用使用
+`vendor/v_socrate_1020/` 中的最小推理副本。
+
+### 依赖与配置
+
+先安装基础依赖和可选视频依赖：
+
+```bash
+pip install -r requirements.txt
+pip install -r requirements-video.txt
+```
+
+确认多模态 vLLM 已启动，并在 `.env` 中配置：
+
+```bash
+V_SOCRATE_ENABLED=true
+V_SOCRATE_MODEL=qwen3-vl-8b-instruct
+V_SOCRATE_ENDPOINTS=http://127.0.0.1:8200/v1
+V_SOCRATE_CLIP_MODEL=/absolute/path/to/clip-vit-base-patch32
+V_SOCRATE_CACHE_DIR=./.cache/v_socrate
+
+# 最终答案仍使用现有模型，例如 DeepSeek
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-chat
+OPENAI_API_KEY=...
+```
+
+没有 GPU 服务时，可用 `V_SOCRATE_USE_MOCK=true` 验证上传、对话持久化和页面状态；
+Mock 会明确提示没有真正读取视频，不能用于动作判断。
+
+### API 示例
+
+```bash
+curl -X POST http://localhost:8000/video-analysis \
+  -F 'user_id=usr_001' \
+  -F 'question=请检查整个视频中的深蹲动作是否存在风险' \
+  -F 'file=@./squat.mp4;type=video/mp4'
+```
+
+默认支持 MP4、MOV、M4V、WebM，大小上限 100 MiB。上传内容只保存在临时文件中，
+请求结束后立即删除；VideoIndex 特征缓存按文件哈希存放，不保存原视频。

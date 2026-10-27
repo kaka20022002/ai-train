@@ -12,6 +12,7 @@ evaluation_results.csv
 *.log
 *.db
 *.db-journal
+.cache/
 
 # Frontend
 frontend/node_modules/
