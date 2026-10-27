@@ -1,5 +1,5 @@
 import Taro from "@tarojs/taro";
-import { API_BASE, STORAGE_KEYS } from "./config";
+import { API_BASE, STORAGE_KEYS, apiBaseLabel } from "./config";
 
 export class ApiError extends Error {
   status: number;
@@ -13,11 +13,12 @@ export class ApiError extends Error {
 }
 
 function networkHint(errMsg: string): string {
-  const base = API_BASE.replace(/^https?:\/\//, "");
+  const base = apiBaseLabel().replace(/^https?:\/\//, "");
   return (
     `连不上后端 ${base}。` +
-    `真机请用手机热点连电脑后改 API 地址；` +
-    `并勾选「不校验合法域名」。(${errMsg.slice(0, 40)})`
+    `电脑上直接访问 http://${base}/health 应能看到 {"status":"ok"}；` +
+    `若手机真机调试，请先用 ?api=http://<电脑IP>:8000 指定地址。` +
+    `(${errMsg.slice(0, 60)})`
   );
 }
 

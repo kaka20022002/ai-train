@@ -19,7 +19,7 @@ API Documentation (auto-generated):
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -1087,6 +1087,28 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown."""
     print("\n🛑 API shutting down...")
+
+
+# =============================================================================
+# H5 预览同源托管
+# =============================================================================
+# 为什么同源：H5 原本单独跑在 5178，向 8000 发请求属于跨域；若页面本身被
+# 内置浏览器以 https 代理打开，http 后端还会被判成混合内容直接失败。
+# 把构建产物挂到 API 自己的域名下，页面与接口同源，前端 config 会把
+# API_BASE 自动切换成 location.origin。
+_H5_DIST = Path(__file__).resolve().parent / "miniprogram" / "dist"
+
+if (_H5_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    @app.get("/h5", include_in_schema=False)
+    def h5_index():
+        return RedirectResponse(url="/index.html")
+
+    # catch-all 必须最后挂载：先匹配已有 API 路由，剩下的才落到静态文件
+    app.mount("/", StaticFiles(directory=str(_H5_DIST), html=True), name="h5")
+else:
+    print(f"ℹ️ 未找到 H5 构建产物（{_H5_DIST}），跳过静态托管")
 
 
 # =============================================================================

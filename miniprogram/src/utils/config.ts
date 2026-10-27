@@ -22,7 +22,41 @@
  *
  * 开发者工具务必勾选：不校验合法域名、web-view、TLS 版本以及 HTTPS 证书
  */
-export const API_BASE = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE = "http://127.0.0.1:8000";
+
+/**
+ * 运行时决定后端地址，按优先级：
+ *  1. 地址栏参数 ?api=http://192.168.1.5:8000（真机调试最省事，不用重新编译）
+ *  2. 页面本身由后端同源托管（端口 8000）→ 用相对路径 ""，彻底没有跨域/混合内容问题
+ *  3. 其它浏览器场景（如 5178 独立静态预览）→ 回落到 127.0.0.1:8000
+ *  4. 小程序 / 开发者工具（没有 location）→ 127.0.0.1:8000
+ */
+function resolveApiBase(): string {
+  try {
+    const loc = (globalThis as any)?.location;
+    if (loc && typeof loc.origin === "string" && /^https?:/.test(loc.origin)) {
+      const fromQuery = new URLSearchParams(loc.search || "").get("api");
+      if (fromQuery) return fromQuery.replace(/\/+$/, "");
+      if (loc.port === "8000") return loc.origin;
+      return DEFAULT_API_BASE;
+    }
+  } catch {
+    /* 忽略：降级到默认地址 */
+  }
+  return DEFAULT_API_BASE;
+}
+
+export const API_BASE = resolveApiBase();
+
+/** 提示文案里用的可读地址（API_BASE 为空表示同源） */
+export function apiBaseLabel(): string {
+  if (API_BASE) return API_BASE;
+  try {
+    return (globalThis as any)?.location?.origin || DEFAULT_API_BASE;
+  } catch {
+    return DEFAULT_API_BASE;
+  }
+}
 
 export const STORAGE_KEYS = {
   token: "ai_train_token",
