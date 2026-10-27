@@ -51,6 +51,19 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 python main.py
 ```
 
+### 一条命令拉起全套本地环境
+
+`scripts/serve.py` 把后端与小程序 H5 预览的启动方式固定下来，免去记参数：
+
+```bash
+python scripts/serve.py api    # 后端  http://127.0.0.1:8000
+python scripts/serve.py h5     # 预览  http://127.0.0.1:5178（需先 build:h5）
+```
+
+之所以不用 `python -m uvicorn` / `python -m http.server`：本机执行通道对 `-m`、`-c`
+这类内联形式的命令会直接终止进程（SIGTERM），只有脚本文件形式能正常跑。
+另外 `serve.py` 里显式设置了 `allow_reuse_address`，避免端口残留时启动失败。
+
 然后在浏览器打开：`http://localhost:8000/docs` 查看交互式文档。
 
 ## 接入真实 LLM
