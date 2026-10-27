@@ -60,14 +60,11 @@ export default function CoachPage() {
       }
       setMessages((prev) => [...prev, { role: "assistant", content }]);
     } catch (e: any) {
-      Taro.showToast({ title: e?.message?.slice(0, 40) || "发送失败", icon: "none" });
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "暂时连不上教练服务，请确认后端已在 8000 端口运行。",
-        },
-      ]);
+      // 不再用固定的「连不上后端」兜底 —— 那句会把超时、跨域、500 全糊成
+      // 一个原因，之前就是它把「等 20 秒超时」误报成「后端没启动」。
+      const detail = e?.message || "发送失败，请重试";
+      Taro.showToast({ title: detail.slice(0, 40), icon: "none", duration: 3000 });
+      setMessages((prev) => [...prev, { role: "assistant", content: detail }]);
     } finally {
       setSending(false);
     }
@@ -164,7 +161,9 @@ export default function CoachPage() {
           ))}
           {sending && (
             <View className="bubble bot">
-              <Text className="bubble-text typing">教练正在回复…</Text>
+              <Text className="bubble-text typing">
+                教练正在思考（含风险分析，约 20-40 秒）…
+              </Text>
             </View>
           )}
         </View>

@@ -21,6 +21,22 @@ function networkHint(errMsg: string): string {
   );
 }
 
+/** 把底层异常翻译成人能看懂的一句话，避免所有失败都显示「连不上后端」 */
+function describeError(e: any): string {
+  const raw = String(e?.errMsg || e?.message || e || "");
+
+  if (/timeout|超时|abort/i.test(raw)) {
+    return (
+      "等了很久后端还没回话（请求已超时）。" +
+      "教练这条链路要先跑一次风险分析，首次通常 20-40 秒，请重试一次。"
+    );
+  }
+  if (/fail|network|ECONN|ERR_|Failed to fetch/i.test(raw)) {
+    return networkHint(raw);
+  }
+  return raw || "请求失败";
+}
+
 /** 探测后端是否可达（用于真机调试排错） */
 export async function pingBackend(): Promise<{ ok: boolean; message: string }> {
   try {
@@ -47,9 +63,11 @@ export async function request<T>(
     method?: "GET" | "POST" | "PUT" | "PATCH";
     data?: unknown;
     auth?: boolean;
+    /** 毫秒；默认 20s。含 LLM 的接口（/chat、/generate_plan）要显式放宽 */
+    timeout?: number;
   } = {}
 ): Promise<T> {
-  const { method = "GET", data, auth = true } = options;
+  const { method = "GET", data, auth = true, timeout = 20000 } = options;
   const header: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -66,10 +84,10 @@ export async function request<T>(
       method,
       data,
       header,
-      timeout: 20000,
+      timeout,
     });
   } catch (e: any) {
-    throw new Error(networkHint(e?.errMsg || e?.message || "request:fail"));
+    throw new Error(describeError(e));
   }
 
   if (res.statusCode < 200 || res.statusCode >= 300) {

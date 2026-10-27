@@ -455,6 +455,9 @@ export const api = {
     return request<GeneratePlanResponse>(`/generate_plan${qs}`, {
       method: "POST",
       data: body,
+      // 三 Agent 链路（风险报告 → 生成 → 审查，可能还有一轮重写）
+      // 实测 60-90 秒，默认 20 秒必然超时。
+      timeout: 180000,
     });
   },
 
@@ -465,7 +468,13 @@ export const api = {
     user_id: string;
     message: string;
     conversation_id?: string;
-  }) => request<ChatSyncResponse>("/chat", { method: "POST", data: body }),
+  }) =>
+    request<ChatSyncResponse>("/chat", {
+      method: "POST",
+      data: body,
+      // 命中伤病时本轮会先跑一次 state_risk 再回答，实测 11-40 秒
+      timeout: 120000,
+    }),
 
   analyzeVideo: uploadVideoAnalysis,
 
