@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Sparkles,
   Video,
+  Headset,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ const NAV = [
   { href: "/chat", icon: MessageCircle, label: "AI 教练" },
   { href: "/video-analysis", icon: Video, label: "视频分析" },
   { href: "/profile", icon: User, label: "我的档案" },
+  { href: "/vr", icon: Headset, label: "VR 跟练" },
 ] as const;
 
 function isActive(pathname: string, href: string) {
@@ -84,6 +86,7 @@ export function Sidebar() {
               className={cn(
                 "group relative flex items-center gap-3 rounded-xl text-sm transition-all duration-200",
                 "px-3 py-2.5 md:justify-start justify-center",
+                href === "/vr" && "mt-auto",
                 active ? "font-semibold" : "font-medium",
                 !active && "hover:bg-[var(--surface2)]"
               )}

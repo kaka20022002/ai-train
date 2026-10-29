@@ -12,6 +12,7 @@ export default defineAppConfig({
     "pages/recommendations/index",
     "pages/risk/index",
     "pages/video-analysis/index",
+    "pages/vr/index",
   ],
   window: {
     backgroundTextStyle: "light",

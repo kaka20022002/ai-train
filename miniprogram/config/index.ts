@@ -12,7 +12,7 @@ const config: UserConfigExport = {
     828: 1.81 / 2,
   },
   sourceRoot: "src",
-  outputRoot: "dist",
+  outputRoot: process.env.AI_TRAIN_H5_PREVIEW === "1" ? "dist-h5" : "dist",
   plugins: [],
   defineConstants: {
     // 防止业务代码误用 process 时在小程序运行时报错

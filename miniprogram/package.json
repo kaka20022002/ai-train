@@ -12,6 +12,7 @@
     "build:weapp": "npx taro build --type weapp",
     "dev:weapp": "npx taro build --type weapp --watch",
     "build:h5": "npx taro build --type h5",
+    "build:h5:preview": "node scripts/build-h5-preview.mjs",
     "dev:h5": "npx taro build --type h5 --watch"
   },
   "browserslist": [

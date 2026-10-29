@@ -2,7 +2,7 @@
 
 基于 FastAPI 的自适应运动风险评估与训练计划生成系统。
 
-本项目包含三个核心部分：
+主要功能包括：
 
 1. **RiskAssessmentEngine (`risk_engine.py`)**  
    基于用户伤病史和训练反馈进行静态/动态风险评估，输出禁止动作和训练约束。
@@ -15,6 +15,9 @@
    今日训练 / AI 教练 / 计划 / 我的；详见 [`miniprogram/README.md`](miniprogram/README.md)。
 5. **训练计划推荐** — 基于用户档案、训练历史、器材和伤病条件生成个性化计划排序。
    详见 [`docs/plan-recommendation/README.md`](docs/plan-recommendation/README.md)。
+6. **VR 跟练连接** — 网页 / 小程序生成短码，头显输入匹配，训练后查看独立结果。
+   不要求先填写训练档案，不强制执行网页课表。详见 [协议与使用说明](docs/vr-bridge/README.md)
+   和 [验证及交付说明](docs/vr-bridge/validation.md)。
 
 ## 协作开发
 

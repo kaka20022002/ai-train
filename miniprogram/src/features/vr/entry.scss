@@ -1,0 +1,56 @@
+.vr-entry {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 26rpx 8rpx;
+  margin: 4rpx 0 16rpx;
+  border-top: 1rpx solid rgba(15, 23, 42, 0.09);
+}
+.vr-entry-icon {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 20rpx;
+  background: rgba(15, 118, 110, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vr-entry-lens {
+  width: 36rpx;
+  height: 22rpx;
+  border: 3rpx solid #68857f;
+  border-radius: 8rpx 8rpx 12rpx 12rpx;
+  position: relative;
+}
+.vr-entry-lens::after {
+  content: "";
+  position: absolute;
+  width: 8rpx;
+  height: 7rpx;
+  background: #f0f5f3;
+  border-radius: 5rpx 5rpx 0 0;
+  bottom: -3rpx;
+  left: 14rpx;
+}
+.vr-entry-copy {
+  flex: 1;
+  min-width: 0;
+}
+.vr-entry-title {
+  display: block;
+  color: #425950;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+.vr-entry-subtitle {
+  display: block;
+  color: #819088;
+  font-size: 22rpx;
+  margin-top: 7rpx;
+}
+.vr-entry-arrow {
+  color: #93a29c;
+  font-size: 40rpx;
+  padding: 0 16rpx;
+}

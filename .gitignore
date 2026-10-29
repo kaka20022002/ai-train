@@ -12,6 +12,8 @@ evaluation_results.csv
 *.log
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 .cache/
 
 # 动作库扩充脚本生成的一次性回滚点（保留在本地，不入库）
@@ -25,9 +27,12 @@ frontend/out/
 # Taro mini program
 miniprogram/node_modules/
 miniprogram/dist/
+miniprogram/dist-h5/
 miniprogram/.temp/
 miniprogram/.swc/
 miniprogram/.rn_temp/
 miniprogram/.env
 miniprogram/.env.local
+tests/browser/node_modules/
+tests/browser/artifacts/
 

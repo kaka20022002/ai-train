@@ -14,6 +14,7 @@ import { WORKOUT_TYPE_CN } from "../../utils/labels";
 import { pingBackend } from "../../utils/request";
 import { API_BASE } from "../../utils/config";
 import ExerciseGuideModal from "../../components/ExerciseGuideModal";
+import VrEntry from "../../features/vr/VrEntry";
 import "./index.scss";
 
 const DEMO_EXERCISES: ProgramExercise[] = [
@@ -298,6 +299,8 @@ export default function WorkoutPage() {
           </View>
         </View>
       )}
+
+      <VrEntry />
 
       <ExerciseGuideModal
         exerciseName={guideName}

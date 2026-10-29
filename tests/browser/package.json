@@ -1,0 +1,16 @@
+{
+  "name": "ai-train-vr-browser-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:clients": "node --test client-contract.test.cjs",
+    "test": "node verify-vr.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "prettier": "3.6.2"
+  }
+}

@@ -76,6 +76,7 @@ from routers.insights import router as insights_router
 from routers.auth import router as auth_router
 from routers.stt import router as stt_router
 from routers.video_analysis import router as video_analysis_router
+from vr_bridge.api import router as vr_bridge_router
 from exercise_meta import guide_for, all_guides, animation_frames, sanitize_workout_phases
 
 
@@ -501,6 +502,7 @@ app.include_router(auth_router)
 app.include_router(stt_router)
 # Mount V-Socrate video exercise analysis (lazy-loads optional GPU dependencies)
 app.include_router(video_analysis_router)
+app.include_router(vr_bridge_router)
 
 # Initialize the Risk Assessment Engine at startup
 try:
